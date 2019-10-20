@@ -1,0 +1,16 @@
+include ../common.mk
+
+TARGET = npshell
+OBJ = main.o command.o exec.o file_desc.o
+
+all: $(OBJ)
+	$(CC) $(CFLAGS) $(OBJ) -o $(TARGET)
+	cp $(TARGET) ../
+
+clean:
+	$(RM) $(OBJ) $(TARGET)
+	$(RM) ../$(TARGET)
+
+%.o: %.c command.h
+	$(CC) $(CFLAGS) -c $< -o $@
+	
