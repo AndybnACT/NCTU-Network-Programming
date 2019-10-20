@@ -1,7 +1,7 @@
 include ../common.mk
 
 TARGET = npshell
-OBJ = main.o command.o exec.o file_desc.o
+OBJ = main.o command.o exec.o file_desc.o env.o
 
 all: $(OBJ)
 	$(CC) $(CFLAGS) $(OBJ) -o $(TARGET)

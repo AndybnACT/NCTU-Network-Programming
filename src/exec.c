@@ -145,6 +145,25 @@ int percmd_exec(struct Command *percmd)
     pid_t child;
     int ret;
     sigset_t blk_chld, orig;
+    
+    if (percmd->exec[0] != '.' && percmd->exec[0] != '/') {
+        // lookup in PATH and builtin cmd
+        ret = command_lookup(percmd);
+        if (ret < 0) {
+            if (ret == -CMD_BUILTIN) {
+                // last chance to do piping over here 
+                ret = _builtin_cmd_exec(percmd);
+                percmd->stat = STAT_FINI;
+                percmd->exit_code = ret;
+            }else if (ret == -CMD_UNKNOWN) {
+                percmd->stat = STAT_FINI;
+                percmd->exit_code = -1;
+                printf("Unknown command: [%s].\n", percmd->exec);
+                ret = -1;
+            }
+            return ret;
+        }
+    }
 
     sigemptyset(&blk_chld);
     sigaddset(&blk_chld, SIGCHLD);
@@ -185,7 +204,8 @@ retry:
         dupfd(percmd->fds[0], 0);
         dupfd(percmd->fds[1], 1);
         dupfd(percmd->fds[2], 2);
-        ret = execve("./bin/print_fds", percmd->argv, Envp);
+        // ret = execve("./bin/print_fds", percmd->argv, Envp); // for dbgrun or testrun
+        ret = execve(percmd->exec, percmd->argv, Envp);
         if (ret) {
             perror("execve ");
         }

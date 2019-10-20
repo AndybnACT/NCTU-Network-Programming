@@ -4,11 +4,6 @@
 
 extern char **Envp;
 
-struct builtin_cmd {
-    char *name;
-    int (*cmd)(int, char**);
-};
-
 #define STAT_READY 0x0
 #define STAT_SET   0x1
 #define STAT_EXEC  0x2
@@ -21,6 +16,7 @@ struct Command {
     pid_t pid;
     int exit_code;
     int argc;
+    int (*_func)(int argc, char **argv);
     char *exec;
     char **argv;
     int fds[3];
@@ -84,3 +80,11 @@ struct Command * parse2Cmd(char *cmdbuf, size_t bufsize, struct Command *head);
 /* exec.c */
 int execCmd(struct Command *Cmd);
 struct Command * syncCmd(struct Command *head);
+
+/* env.c */
+#define CMD_FOUND   0x0
+#define CMD_BUILTIN 0x1
+#define CMD_UNKNOWN 0x2
+
+int command_lookup(struct Command *cmdp);
+int _builtin_cmd_exec(struct Command *cmdp);
