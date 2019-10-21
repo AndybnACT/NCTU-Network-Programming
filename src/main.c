@@ -32,25 +32,30 @@ struct Command *Cmd_Head;
 void sigchld_hdlr(int sig, siginfo_t *info, void *ucontext)
 {
     int status = 0;
-    pid_t pid = info->si_pid;
+    pid_t pid; // = info->si_pid;  !! pending `SIGCHLD`s can be coalesced
     struct Command *signaled_cmd;
     
-    if (waitpid(pid, &status, WNOHANG) != pid)
-        return;
-    
-    if (WIFEXITED(status)) {
+    while (1) {
+        pid = waitpid(-1, &status, WNOHANG);
+        if (pid <= 0) {
+            break;
+        }
+        dprintf(0, "sigchld_hdlr: unregistering pid %d \n", pid);
+        
         FINDCMD_BY_PID(signaled_cmd, pid, Cmd_Head);
         if (!signaled_cmd) {
             exit(-1);
         }
-        signaled_cmd->exit_code = WEXITSTATUS(status);
-        signaled_cmd->stat = STAT_KILL;
-        SAFE_CLOSEFD(signaled_cmd->fds[0]);
-        if (signaled_cmd->fds[0] == signaled_cmd->pipes[0])
-            SAFE_CLOSEFD(signaled_cmd->pipes[1]);
-        if (signaled_cmd->file_out_pipe)
-            SAFE_CLOSEFD(signaled_cmd->fds[1]);
-        signaled_cmd->stat = STAT_FINI;
+        
+        if (WIFEXITED(status) || WIFSIGNALED(status)) {
+            signaled_cmd->stat = STAT_KILL;
+            signaled_cmd->exit_code = WIFEXITED(status) ? 
+                                     WEXITSTATUS(status):WTERMSIG(status);
+            signaled_cmd->stat = STAT_FINI;
+        }else{
+            dprintf(0, "sigchld_hdlr: Error !!!\n");
+            signaled_cmd->stat = STAT_KILL;
+        }
     }
     return;
 }
@@ -74,17 +79,6 @@ int main(int argc, char const *argv[], char *envp[])
     if (ret) {
         perror("sigaction");
         exit(-1);
-    }
-    
-    char *dir = getenv(NP_ROOT);
-    if (!dir)
-        dir = NP_ROOT;
-    
-    ret = chdir(dir);
-    if (ret) {
-        perror("chdir");
-        printf("error switching to working directory \"%s\"\n", dir);
-        return errno;
     }
     
     ret = setenv("PATH", "bin:.", 1);

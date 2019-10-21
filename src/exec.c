@@ -14,8 +14,11 @@ int child_dupfd(int old, int new)
     if (old != -1 && new != -1) {
         close(new);
         rc = dup2(old, new);
-        if (rc == -1)
+        if (rc == -1){
             perror("dup");
+            printf("====> old: %d, new %d\n", old, new);
+            exit(-1);
+        }
         // should not close old since stderr may use the same 'old' fd
         // O_CLOEXEC will close the fds for us
     }
@@ -151,29 +154,32 @@ int percmd_exec(struct Command *percmd)
     }
 
 retry:
+    percmd->stat = STAT_EXEC;
     child = fork();
     if (child == -1) {
-        perror("fork ");
+        // perror("fork ");
         sigsuspend(&orig);
         goto retry;
     }else if (child) { // in parent
         dprintf(1, "%d forked\n", child);
         
         percmd->pid  = child;
-        percmd->stat = STAT_EXEC;
         
         dprintf(1, "cmd struct of %d:\n", child);
         dprintCmd(1, percmd);
         dprintf(1, "-------------------\n");
         
+        SAFE_CLOSEFD(percmd->fds[0]);
         SAFE_CLOSEFD(percmd->pipes[0]);
         SAFE_CLOSEFD(percmd->pipes[1]);
+        if (percmd->file_out_pipe)
+            SAFE_CLOSEFD(percmd->fds[1]);
 
         sigprocmask(SIG_SETMASK, &orig, NULL);
         
     }else{ // in child
         sigprocmask(SIG_SETMASK, &orig, NULL);
-        dprintf(1, "hello from child\n");
+        dprintf(1, "hello from child %d\n", getpid());
         child_dupfd(percmd->fds[0], 0);
         child_dupfd(percmd->fds[1], 1);
         child_dupfd(percmd->fds[2], 2);
@@ -193,25 +199,12 @@ int execCmd(struct Command *Cmdhead)
     int cnt = 0;
     struct Command *Cmd;
     
-    // setup pipes before fork-exec
     Cmd = Cmdhead;
     while (Cmd->stat != STAT_READY) {
         if (Cmd->stat == STAT_SET) {
             percmd_pipes(Cmd);
             percmd_file(Cmd);
-            Cmd = Cmd->next;
-        }else{
-            printf("BUG, execCmd reaches:\n");
-            dprintCmd(0, Cmd);
-            printf("======================\n");
-        }
-    }
-    
-    // do fork-exec routines
-    Cmd = Cmdhead;
-    while (Cmd->stat != STAT_READY) {
-        if (Cmd->stat == STAT_SET) {
-            percmd_exec(Cmd);
+            percmd_exec(Cmd); // do fork-exec routines
             cnt++;
             Cmd = Cmd->next;
         }else{
@@ -249,15 +242,14 @@ struct Command * syncCmd(struct Command *head)
     sigset_t orig, blk_all, wait_chld;
     int inexec = 1;
     
-    sigfillset(&blk_all);
-    wait_chld = blk_all;
-    sigdelset(&wait_chld, SIGCHLD);
+    sigemptyset(&wait_chld);
+    sigaddset(&wait_chld, SIGCHLD);
     
-    sigprocmask(SIG_BLOCK, &blk_all, &orig);
+    sigprocmask(SIG_BLOCK, &wait_chld, &orig);
     inexec = _inexec(head);
     while (inexec) {
-        dprintf(1, "waiting for child\n");
-        sigsuspend(&wait_chld); // sigsuspend return after signal is handled
+        dprintf(1, "waiting for child msk=%d\n", sigismember(&orig, SIGCHLD));
+        sigsuspend(&orig); // sigsuspend return after signal is handled
         inexec = _inexec(head);
     }
     
