@@ -5,7 +5,6 @@
 #include <signal.h>
 #include "debug.h"
 #include "command.h"
-#include "fd.h"
 
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -64,7 +63,6 @@ int main(int argc, char const *argv[], char *envp[])
     struct sigaction sigdesc;
     int ret;
     
-    fd_start();
     Cmd_Head = zallocCmd();
     cmd_cur = Cmd_Head;
     Envp = envp;

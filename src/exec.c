@@ -7,7 +7,6 @@
 #include <signal.h>
 #include "command.h"
 #include "debug.h"
-#include "fd.h"
 
 int child_dupfd(int old, int new)
 { // only used in child
@@ -71,27 +70,6 @@ int fill_pipe_fd(struct Command *source, struct Command *dest, int _w, int _r)
             exit(-1);
         }
         src_fds_ptr[_w] = dest->pipes[1];
-        
-        // found = dest->cmd_first_in_pipe;
-        // if (!found) {
-        //     printf("BUG, in-pipe allocated but cannot find Cmd_struct of out-pipe\n");
-        //     exit(-1);
-        // }
-        // do {
-        //     if (found->fds[1] != -1 && found->cmd_out_pipe == dest) {
-        //         // fd_pipe_inc(found->fds[1]);
-        // 
-        //         src_fds_ptr[_w] = found->fds[1];
-        //         break;
-        //     }
-        //     if (found->fds[2] != -1 && found->cmd_err_pipe == dest) {
-        //         // fd_pipe_inc(found->fds[2]);
-        //         src_fds_ptr[_w] = found->fds[2];
-        //         break;
-        //     }
-        //     printf("BUG, in-pipe allocated but cannot find out-pipe fd\n");
-        //     exit(-1);
-        // } while(0);
     }
     return 0;
 }
@@ -128,7 +106,6 @@ int percmd_file(struct Command *percmd)
         perror("open ");
         exit(-1);
     }
-    // fd_init(fd);
     
     if (percmd->fds[1] != -1) {
         printf("BUG, output fd already exists\n");
