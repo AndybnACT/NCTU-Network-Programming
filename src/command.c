@@ -145,8 +145,6 @@ struct Command * parse2Cmd(char *cmdbuf, size_t bufsize, struct Command *head)
     struct token *tokptr = &tokenlist;
     struct Command *curcmd;
     
-    ret = gettoken(cmdbuf, &tokenlist);
-    
     // walk to the first command struct that hasn't been executed
     for (; head && head->stat != STAT_READY; head = head->next) {
         // dprintf(1, "walking through...\n");
@@ -159,6 +157,9 @@ struct Command * parse2Cmd(char *cmdbuf, size_t bufsize, struct Command *head)
         exit(-1);
     }
     
+    ret = gettoken(cmdbuf, &tokenlist);
+    if (!ret)
+        return curcmd;
     
     dprintf(1, "token list[%d]:\n", ret);
     for (struct token *tokenp = &tokenlist; tokenp->next; tokenp = tokenp->next) {
