@@ -11,6 +11,6 @@ clean:
 	$(RM) $(OBJ) $(TARGET)
 	$(RM) ../$(TARGET)
 
-%.o: %.c command.h
+%.o: %.c %.h command.h debug.h
 	$(CC) $(CFLAGS) -c $< -o $@
 	

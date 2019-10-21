@@ -9,23 +9,16 @@
 #include "debug.h"
 #include "fd.h"
 
-char * path_lookup(char *exec)
-{
-    // char *base = getenv("PATH");
-    return NULL;
-}
-
-
-int dupfd(int old, int new)
+int child_dupfd(int old, int new)
 { // only used in child
     int rc = 0;
     if (old != -1 && new != -1) {
-        fd_dec(new);
+        close(new);
         rc = dup2(old, new);
         if (rc == -1)
             perror("dup");
-        
-        fd_dec(old); // no need to close it since O_CLOEXEC is set 
+        // should not close old since stderr may use the same 'old' fd
+        // O_CLOEXEC will close the fds for us
     }
     // fail silently for invalid arguments
     return rc;
@@ -48,8 +41,6 @@ retry:
         }
         return -1;
     }
-    fd_init(pipefds[0]);
-    fd_init(pipefds[1]);
     dprintf(2, "\tcreate pipe, fd = %d, %d\n", pipefds[0], pipefds[1]);
     return 0;
 }
@@ -71,27 +62,36 @@ int fill_pipe_fd(struct Command *source, struct Command *dest, int _w, int _r)
         }
         src_fds_ptr[_w] = pipes[1];
         dst_fds_ptr[_r] = pipes[0];
+        dest->pipes[0] = pipes[0];
+        dest->pipes[1] = pipes[1]; 
     }else{
         /* pipe already exists. someone has allocated a pipe to the dest */
-        found = dest->cmd_first_in_pipe;
-        if (!found) {
-            printf("BUG, in-pipe allocated but cannot find Cmd_struct of out-pipe\n");
-            exit(-1);
-        }
-        do {
-            if (found->fds[1] != -1 && found->cmd_out_pipe == dest) {
-                fd_inc(found->fds[1]);
-                src_fds_ptr[_w] = found->fds[1];
-                break;
-            }
-            if (found->fds[2] != -1 && found->cmd_err_pipe == dest) {
-                fd_inc(found->fds[2]);
-                src_fds_ptr[_w] = found->fds[2];
-                break;
-            }
+        if (dest->pipes[1] == -1) {
             printf("BUG, in-pipe allocated but cannot find out-pipe fd\n");
             exit(-1);
-        } while(0);
+        }
+        src_fds_ptr[_w] = dest->pipes[1];
+        
+        // found = dest->cmd_first_in_pipe;
+        // if (!found) {
+        //     printf("BUG, in-pipe allocated but cannot find Cmd_struct of out-pipe\n");
+        //     exit(-1);
+        // }
+        // do {
+        //     if (found->fds[1] != -1 && found->cmd_out_pipe == dest) {
+        //         // fd_pipe_inc(found->fds[1]);
+        // 
+        //         src_fds_ptr[_w] = found->fds[1];
+        //         break;
+        //     }
+        //     if (found->fds[2] != -1 && found->cmd_err_pipe == dest) {
+        //         // fd_pipe_inc(found->fds[2]);
+        //         src_fds_ptr[_w] = found->fds[2];
+        //         break;
+        //     }
+        //     printf("BUG, in-pipe allocated but cannot find out-pipe fd\n");
+        //     exit(-1);
+        // } while(0);
     }
     return 0;
 }
@@ -128,7 +128,7 @@ int percmd_file(struct Command *percmd)
         perror("open ");
         exit(-1);
     }
-    fd_init(fd);
+    // fd_init(fd);
     
     if (percmd->fds[1] != -1) {
         printf("BUG, output fd already exists\n");
@@ -189,21 +189,17 @@ retry:
         dprintCmd(1, percmd);
         dprintf(1, "-------------------\n");
         
-        // no one will write to the process (pipe) after it is started
-        if (percmd->fds[0] != -1)
-            fd_dec(percmd->fds[0]);
-        percmd->fds[0] = -1;
+        SAFE_CLOSEFD(percmd->pipes[0]);
+        SAFE_CLOSEFD(percmd->pipes[1]);
+
         sigprocmask(SIG_SETMASK, &orig, NULL);
         
     }else{ // in child
         sigprocmask(SIG_SETMASK, &orig, NULL);
         dprintf(1, "hello from child\n");
-        fd_init(0);
-        fd_init(1);
-        fd_init(2);
-        dupfd(percmd->fds[0], 0);
-        dupfd(percmd->fds[1], 1);
-        dupfd(percmd->fds[2], 2);
+        child_dupfd(percmd->fds[0], 0);
+        child_dupfd(percmd->fds[1], 1);
+        child_dupfd(percmd->fds[2], 2);
         // ret = execve("./bin/print_fds", percmd->argv, Envp); // for dbgrun or testrun
         ret = execve(percmd->exec, percmd->argv, Envp);
         if (ret) {
@@ -283,6 +279,7 @@ struct Command * syncCmd(struct Command *head)
     sigprocmask(SIG_BLOCK, &blk_all, &orig);
     inexec = _inexec(head);
     while (inexec) {
+        dprintf(1, "waiting for child\n");
         sigsuspend(&wait_chld); // sigsuspend return after signal is handled
         inexec = _inexec(head);
     }

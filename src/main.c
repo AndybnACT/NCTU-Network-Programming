@@ -30,10 +30,6 @@ struct Command *Cmd_Head;
 // read:
 //      SA_NOCLDSTOP
 //      SA_NOCLDWAIT
-#define SAFE_CLOSEFD(fd){   \
-    if (fd != -1)           \
-        fd_dec(fd);         \
-}
 void sigchld_hdlr(int sig, siginfo_t *info, void *ucontext)
 {
     int status = 0;
@@ -50,9 +46,11 @@ void sigchld_hdlr(int sig, siginfo_t *info, void *ucontext)
         }
         signaled_cmd->exit_code = WEXITSTATUS(status);
         signaled_cmd->stat = STAT_KILL;
-        SAFE_CLOSEFD(signaled_cmd->fds[0]); // !! using dprintf here
-        SAFE_CLOSEFD(signaled_cmd->fds[1]); // !! which is not re-entrant safe
-        SAFE_CLOSEFD(signaled_cmd->fds[2]);
+        SAFE_CLOSEFD(signaled_cmd->fds[0]);
+        if (signaled_cmd->fds[0] == signaled_cmd->pipes[0])
+            SAFE_CLOSEFD(signaled_cmd->pipes[1]);
+        if (signaled_cmd->file_out_pipe)
+            SAFE_CLOSEFD(signaled_cmd->fds[1]);
         signaled_cmd->stat = STAT_FINI;
     }
     return;
@@ -88,6 +86,12 @@ int main(int argc, char const *argv[], char *envp[])
     if (ret) {
         perror("chdir");
         printf("error switching to working directory \"%s\"\n", dir);
+        return errno;
+    }
+    
+    ret = setenv("PATH", "bin:.", 1);
+    if (ret) {
+        perror("setenv");
         return errno;
     }
     

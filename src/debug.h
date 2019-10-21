@@ -2,7 +2,7 @@
 #define DEBUG_H
 #include <stdio.h>
 
-#define DEBUG
+// #define DEBUG
 #ifdef DEBUG
 #define CONFIG_DEBUG_LEVEL 5
 

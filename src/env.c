@@ -8,6 +8,7 @@
 struct builtin_cmd Builtin_Cmds[] = {
     {"printenv", do_printenv},
     {"setenv", do_setenv},
+    {"exit", do_exit}
 };
 const int NCMD = (sizeof(Builtin_Cmds)/sizeof(struct builtin_cmd));
 
@@ -30,7 +31,7 @@ static inline char * _copy_path(void)
 int command_lookup(struct Command *cmdp)
 {
     int rc = 0;
-    int nrpth = 0;
+    int nrpth;
     int found = 0;
     int bufsize = 0;
     int pthsize = 0;
@@ -53,6 +54,7 @@ int command_lookup(struct Command *cmdp)
     lookupbuf = (char*) malloc(bufsize);
     memset(lookupbuf, 0, bufsize);
 
+    nrpth = 1;
     for (size_t i = 0; i < pthsize; i++){
         if (path[i] == ':'){
             path[i] = '\0';
@@ -99,6 +101,11 @@ int _builtin_cmd_exec(struct Command *cmdp)
 int do_printenv(int argc, char **argv)
 {
     char *env = getenv(argv[1]);
+    if (argc != 2) {
+        printf("argc incorrect\n");
+        printf("printenv usage: printenv VAR\n");
+        return -1;
+    }
     if (env) {
         printf("%s\n", env);
     }
@@ -107,5 +114,15 @@ int do_printenv(int argc, char **argv)
 
 int do_setenv(int argc, char **argv)
 {
+    if (argc != 3) {
+        printf("argc incorrect\n");
+        printf("setenv usage: setenv VAR AS_SOMETHING\n");
+        return -1;
+    }
     return setenv(argv[1], argv[2], 1);
+}
+
+int do_exit(int argc, char **argv)
+{
+    exit(0);
 }

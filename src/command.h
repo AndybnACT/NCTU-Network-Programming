@@ -78,6 +78,10 @@ static inline struct Command * zallocCmd(void)
 struct Command * parse2Cmd(char *cmdbuf, size_t bufsize, struct Command *head);
 
 /* exec.c */
+#define SAFE_CLOSEFD(fd){   \
+    if (fd != -1)           \
+        close(fd);          \
+}
 int execCmd(struct Command *Cmd);
 struct Command * syncCmd(struct Command *head);
 
