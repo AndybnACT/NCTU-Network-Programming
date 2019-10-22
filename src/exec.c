@@ -53,7 +53,6 @@ int fill_pipe_fd(struct Command *source, struct Command *dest, int _w, int _r)
     int rc;
     int *src_fds_ptr = source->fds;
     int *dst_fds_ptr = dest->fds;
-    struct Command *found;
     
     if (dst_fds_ptr[_r] == -1) {
         rc = _create_pipe(pipes);
@@ -251,7 +250,7 @@ static inline int _block(struct Command *h)
 
 struct Command * syncCmd(struct Command *head)
 {
-    sigset_t orig, blk_all, wait_chld;
+    sigset_t orig, wait_chld;
     int block = 1;
     
     sigemptyset(&wait_chld);
