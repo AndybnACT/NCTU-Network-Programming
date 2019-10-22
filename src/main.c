@@ -67,6 +67,7 @@ int main(int argc, char const *argv[], char *envp[])
     struct Command *cmd_cur;
     struct sigaction sigdesc;
     int ret;
+    sigset_t blk_chld, orig;
     
     Cmd_Head = zallocCmd();
     cmd_cur = Cmd_Head;
@@ -90,7 +91,11 @@ int main(int argc, char const *argv[], char *envp[])
     Cmd_Head->stat = STAT_READY;
     Cmd_Head->next = NULL;
     
+    sigemptyset(&blk_chld);
+    sigaddset(&blk_chld, SIGCHLD);
+
     while (1) {
+        sigprocmask(SIG_BLOCK, &blk_chld, &orig);
         printf("%% ");
         
         errno = 0;
@@ -101,6 +106,7 @@ int main(int argc, char const *argv[], char *envp[])
             free(cmdbuf);
             return errno;
         }
+        sigprocmask(SIG_SETMASK, &orig, NULL);
         
         dprintf(0, "===>getline=%d:  %s\n", ret, cmdbuf);
         
@@ -119,6 +125,11 @@ int main(int argc, char const *argv[], char *envp[])
         // due to the reentrancy of signal handler, all set (STAT_SET) and 
         // fork'ed commands after syncCmd should not remain active (STAT_EXEC).
         // ==> This currently makes npshell do not support background command
+        // ><><><><><><><><><><><><><>
+        // We may touch only pid(r), stat(w), exit_code(w) of a executed Cmd in
+        // the handler and we have properly block the signal when using those 
+        // variables in 'exec.c'. Thus, it is possible to leave processes remain
+        // STAT_EXEC if it does not need tty output
         Cmd_Head = syncCmd(Cmd_Head);
     }
 

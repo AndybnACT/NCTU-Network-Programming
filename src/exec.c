@@ -16,7 +16,6 @@ int child_dupfd(int old, int new)
         rc = dup2(old, new);
         if (rc == -1){
             perror("dup");
-            printf("====> old: %d, new %d\n", old, new);
             exit(-1);
         }
         // should not close old since stderr may use the same 'old' fd
@@ -224,33 +223,46 @@ int execCmd(struct Command *Cmdhead)
  *  of the while loop since the active command count may not remain same due
  *  to the signal handler 
  */
-static inline int _inexec(struct Command *h)
+static inline int _need_ttyo(struct Command *p)
 {
-    int inexec;
+    if (p->stat != STAT_EXEC)
+        return -1;
+    if (p->fds[1] == -1) {
+        return 1;
+    }else{
+        return 0;
+    }
+}
+static inline int _block(struct Command *h)
+{
+    int blk;
     for (struct Command *p = h; p; p=p->next) {
-        inexec = 0;
+        blk = 0;
         if (p->stat == STAT_EXEC) {
-            inexec = 1;
-            break;
+            if (_need_ttyo(p) == 1 || p->file_out_pipe) {
+                // file output should be sequential!!
+                blk = 1;
+                break;
+            }
         }
     }
-    return inexec;
+    return blk;
 }
 
 struct Command * syncCmd(struct Command *head)
 {
     sigset_t orig, blk_all, wait_chld;
-    int inexec = 1;
+    int block = 1;
     
     sigemptyset(&wait_chld);
     sigaddset(&wait_chld, SIGCHLD);
     
     sigprocmask(SIG_BLOCK, &wait_chld, &orig);
-    inexec = _inexec(head);
-    while (inexec) {
+    block = _block(head);
+    while (block) {
         dprintf(1, "waiting for child msk=%d\n", sigismember(&orig, SIGCHLD));
         sigsuspend(&orig); // sigsuspend return after signal is handled
-        inexec = _inexec(head);
+        block = _block(head);
     }
     
     if (sigismember(&orig, SIGCHLD)) { // not reach
