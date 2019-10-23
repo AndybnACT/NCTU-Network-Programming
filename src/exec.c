@@ -172,7 +172,7 @@ retry:
         child_dupfd(percmd->fds[1], 1);
         child_dupfd(percmd->fds[2], 2);
         // ret = execve("./bin/print_fds", percmd->argv, Envp); // for dbgrun or testrun
-        ret = execve(percmd->exec, percmd->argv, Envp);
+        ret = execve(percmd->exec, percmd->argv, environ);
         if (ret) {
             perror("execve ");
         }

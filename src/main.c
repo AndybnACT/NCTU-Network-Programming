@@ -1,3 +1,4 @@
+#define _GNU_SOURCE // for var environ
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -11,7 +12,6 @@
 
 #define NP_ROOT "working_dir"
 
-char **Envp;
 struct Command *Cmd_Head;
 
 #define FINDCMD_BY_PID(ptr, pid, head){                         \
@@ -60,7 +60,7 @@ void sigchld_hdlr(int sig, siginfo_t *info, void *ucontext)
     return;
 }
 
-int main(int argc, char const *argv[], char *envp[])
+int main(int argc, char const *argv[])
 {
     char *cmdbuf = NULL;
     size_t bufsize = 0;
@@ -71,7 +71,6 @@ int main(int argc, char const *argv[], char *envp[])
     
     Cmd_Head = zallocCmd();
     cmd_cur = Cmd_Head;
-    Envp = envp;
     sigdesc.sa_sigaction = sigchld_hdlr;
     sigdesc.sa_flags = SA_SIGINFO|SA_NOCLDSTOP;
     
