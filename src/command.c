@@ -70,7 +70,7 @@ int npipe_getn(struct token *t)
     return number;
 }
 
-int npipe_setcmd(int number, struct Command *head, int err)
+int npipe_setcmd(int number, struct Command *head, int pipe_stderr)
 {
     struct Command *cur = head;
 
@@ -83,7 +83,7 @@ int npipe_setcmd(int number, struct Command *head, int err)
     }
     
     head->cmd_out_pipe = cur;
-    if (err)
+    if (pipe_stderr)
         head->cmd_err_pipe = cur;
 
     if (!cur->cmd_first_in_pipe) 
@@ -132,8 +132,36 @@ struct token * tok2npipe(struct token *tokp, struct Command *head)
 
 int flushCmd(struct Command *cur)
 {
-    // bad implementation
-    RESETCMD(cur);
+    struct Command *p = cur;
+    dprintf(2, "flusing cmds...\n");
+    while (p) {
+        switch (p->stat) {
+            case STAT_SET:
+                dprintCmd(2, p);
+                p->stat = STAT_READY;
+                p->pid = 0;
+                p->argc = 0;
+                // leaking argv
+                p->_func = NULL;
+                p->file_out_pipe = NULL;
+                // if pipe hasn't been allocated (npipe senario)
+                if (p->pipes[0] == -1 && p->pipes[1] == -1) {
+                    p->cmd_first_in_pipe = NULL;
+                    p->fds[0] = -1;
+                }
+                p->fds[1] = -1;
+                p->fds[2] = -1;
+                p->cmd_out_pipe = NULL;
+                p->cmd_err_pipe = NULL;
+            case STAT_READY:
+                break;
+            default:
+                printf("BUG invalid cmd stat when parsing cmd, check debug\n");
+                dprintCmd(1, p);
+                exit(-1);
+        }
+        p = p->next;
+    }
     return 0;
 }
 
