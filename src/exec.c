@@ -5,6 +5,7 @@
 #include <fcntl.h> 
 #include <sys/types.h>
 #include <signal.h>
+#include <string.h>
 #include "command.h"
 #include "debug.h"
 
@@ -123,6 +124,7 @@ int percmd_exec(struct Command *percmd)
     pid_t child;
     int ret;
     sigset_t blk_chld, orig;
+    int fderr;
     
     if (percmd->exec[0] != '.' && percmd->exec[0] != '/') {
         // lookup in PATH and builtin cmd
@@ -134,12 +136,17 @@ int percmd_exec(struct Command *percmd)
                 percmd->stat = STAT_FINI;
                 percmd->exit_code = ret;
             }else if (ret == -CMD_UNKNOWN) {
+                fderr = percmd->fds[2] == -1 ? 2:percmd->fds[2];
+                
                 percmd->stat = STAT_FINI;
                 percmd->exit_code = -1;
-                printf("Unknown command: [%s].\n", percmd->exec);
+                // write to stderr of this cmd !!
+                write(fderr, "Unknown command: [", 18);
+                write(fderr, percmd->exec, strlen(percmd->exec));
+                write(fderr, "].\n", 3);
                 ret = -1;
             }
-            return ret;
+            goto safe_close;
         }
     }
 
@@ -158,24 +165,7 @@ retry:
         // perror("fork ");
         sigsuspend(&orig);
         goto retry;
-    }else if (child) { // in parent
-        dprintf(1, "%d forked\n", child);
-        
-        percmd->pid  = child;
-        
-        dprintf(1, "cmd struct of %d:\n", child);
-        dprintCmd(1, percmd);
-        dprintf(1, "-------------------\n");
-        
-        SAFE_CLOSEFD(percmd->fds[0]);
-        SAFE_CLOSEFD(percmd->pipes[0]);
-        SAFE_CLOSEFD(percmd->pipes[1]);
-        if (percmd->file_out_pipe)
-            SAFE_CLOSEFD(percmd->fds[1]);
-
-        sigprocmask(SIG_SETMASK, &orig, NULL);
-        
-    }else{ // in child
+    }else if (child == 0){ // in child
         sigprocmask(SIG_SETMASK, &orig, NULL);
         dprintf(1, "hello from child %d\n", getpid());
         child_dupfd(percmd->fds[0], 0);
@@ -189,7 +179,23 @@ retry:
         exit(-1);
     }
     
-    return 0;
+    // in parent
+    dprintf(1, "%d forked\n", child);
+    percmd->pid  = child;
+    sigprocmask(SIG_SETMASK, &orig, NULL);
+    
+    dprintf(1, "cmd struct of %d:\n", child);
+    dprintCmd(1, percmd);
+    dprintf(1, "-------------------\n");
+
+safe_close:    
+    SAFE_CLOSEFD(percmd->fds[0]);
+    SAFE_CLOSEFD(percmd->pipes[0]);
+    SAFE_CLOSEFD(percmd->pipes[1]);
+    if (percmd->file_out_pipe)
+        SAFE_CLOSEFD(percmd->fds[1]);
+    
+    return ret;
 }
 
 int execCmd(struct Command *Cmdhead)
