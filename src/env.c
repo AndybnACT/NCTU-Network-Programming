@@ -8,7 +8,8 @@
 struct builtin_cmd Builtin_Cmds[] = {
     {"printenv", do_printenv},
     {"setenv", do_setenv},
-    {"exit", do_exit}
+    {"exit", do_exit},
+    {"source", do_source}
 };
 const int NCMD = (sizeof(Builtin_Cmds)/sizeof(struct builtin_cmd));
 
@@ -42,6 +43,11 @@ int command_lookup(struct Command *cmdp)
     // check if cmd is builtin command
     for (size_t i = 0; i < NCMD; i++) {
         if (!strcmp(cmdname, Builtin_Cmds[i].name)) {
+            if (Builtin_Cmds[i].func == do_source) {
+                cmdp->source = 1;
+                cmdname = "npshell";
+                break;
+            }
             cmdp->_func = Builtin_Cmds[i].func;
             return -CMD_BUILTIN;
         }
@@ -125,4 +131,9 @@ int do_setenv(int argc, char **argv)
 int do_exit(int argc, char **argv)
 {
     exit(0);
+}
+
+int do_source(int argc, char **argv)
+{
+    return 0;
 }

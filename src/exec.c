@@ -119,6 +119,26 @@ int percmd_file(struct Command *percmd)
     return 0;
 }
 
+int child_source_exec(struct Command *child)
+{
+    int argc = child->argc;
+    int fd;
+    if (argc != 2) {
+        printf("source usage: source file\n");
+        exit(-1);
+    }
+    fd = open(child->argv[1], O_RDONLY);
+    if (fd == -1) {
+        perror("open");
+        exit(-1);
+    }
+    if (child->fds[0] != -1) {
+        printf("source BUG, stdin already allocated\n");
+    }
+    child->fds[0] = fd;
+    return 0;
+}
+
 int percmd_exec(struct Command *percmd)
 {
     pid_t child;
@@ -168,6 +188,9 @@ retry:
     }else if (child == 0){ // in child
         sigprocmask(SIG_SETMASK, &orig, NULL);
         dprintf(1, "hello from child %d\n", getpid());
+        if (percmd->source) {
+            child_source_exec(percmd);
+        }
         child_dupfd(percmd->fds[0], 0);
         child_dupfd(percmd->fds[1], 1);
         child_dupfd(percmd->fds[2], 2);

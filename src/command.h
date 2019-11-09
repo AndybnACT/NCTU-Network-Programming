@@ -12,6 +12,7 @@ extern char **Envp;
 
 
 struct Command {
+    int source;
     int stat;
     pid_t pid;
     int exit_code;
@@ -29,6 +30,7 @@ struct Command {
 };
 
 #define RESETCMD(cmd) {                 \
+    (cmd)->source = 0;                  \
     (cmd)->pid = 0;                     \
     (cmd)->stat = STAT_READY;           \
     (cmd)->next = NULL;                 \
