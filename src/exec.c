@@ -103,7 +103,7 @@ int percmd_file(struct Command *percmd)
     if (!path)
         return 0;
     
-    fd = open(path, O_RDWR|O_CLOEXEC|O_CREAT, 0666);
+    fd = open(path, O_RDWR|O_CLOEXEC|O_CREAT|O_TRUNC, 0666);
     if (fd == -1) {
         perror("open ");
         exit(-1);
