@@ -1,4 +1,5 @@
 #define _GNU_SOURCE // for var environ
+#include "npshell.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -60,7 +61,7 @@ void sigchld_hdlr(int sig, siginfo_t *info, void *ucontext)
     return;
 }
 
-int main(int argc, char const *argv[])
+int npshell(int argc, char const *argv[])
 {
     char *cmdbuf = NULL;
     size_t bufsize = 0;
@@ -68,6 +69,8 @@ int main(int argc, char const *argv[])
     struct sigaction sigdesc;
     int ret;
     sigset_t blk_chld, orig;
+    
+    dprintf(0, "initializing npshell, pid=%d\n", getpid());
     
     Cmd_Head = zallocCmd();
     cmd_cur = Cmd_Head;
