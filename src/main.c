@@ -99,12 +99,15 @@ int npshell(int argc, char const *argv[])
     while (1) {
         sigprocmask(SIG_BLOCK, &blk_chld, &orig);
         printf("%% ");
-        
+retry:
         errno = 0;
         ret = getline(&cmdbuf, &bufsize, stdin);
         if (ret == -1) {
-            if (errno)
-                perror("getline");
+            if (errno == EINTR) {
+                // dprintf(0, "interrupted syscall\n");
+                goto retry;
+            }
+            perror("getline");
             free(cmdbuf);
             return errno;
         }

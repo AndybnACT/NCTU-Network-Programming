@@ -6,6 +6,7 @@
 
 
 #define DELIMITER "\n\t\r "
+#define LINEBREAK "\n\r"
 struct token {
     int type;
     int len;
@@ -16,6 +17,8 @@ struct token {
 int gettoken(char *buf, struct token *token)
 {
     int tokcnt = 0;
+    int msgcmd = 0;
+    int msg_remaintok = -1;
     
     while (1) {
         while (strchr(DELIMITER, *buf) && *buf) {
@@ -30,9 +33,35 @@ int gettoken(char *buf, struct token *token)
         token->len = 0;
         tokcnt++;
         
+        if (msgcmd) {
+            msg_remaintok -= 1;
+            // walk through entire str for last item in tell/yell cmds
+            if (msg_remaintok == 0) {
+                while (!strchr(LINEBREAK, *buf) && *buf) {
+                    buf++;
+                    token->len++;
+                }
+            }
+        }
+        
         while (!strchr(DELIMITER, *buf) && *buf) {
             buf++;
             token->len++;
+        }
+        
+        if (msg_remaintok == -1) {
+            if (msgcmd == 1) { 
+                // parse error (LINEBREAK is not followed by \0)
+                return 0;
+            }
+            if (strncmp(token->name, "tell", token->len) == 0) {
+                msgcmd = 1;
+                msg_remaintok = 2;
+            }
+            if (strncmp(token->name, "yell", token->len) == 0) {
+                msgcmd = 1;
+                msg_remaintok = 1;
+            }
         }
         
         token->next = (struct token*) malloc(sizeof(struct token));

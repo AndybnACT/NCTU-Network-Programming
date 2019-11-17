@@ -4,12 +4,17 @@
 #include <unistd.h>
 #include "command.h"
 #include "env.h"
+#include "net.h"
 
 struct builtin_cmd Builtin_Cmds[] = {
     {"printenv", do_printenv},
     {"setenv", do_setenv},
     {"exit", do_exit},
-    {"source", do_source}
+    {"source", do_source},
+    {"who", npclient_who},
+    {"name", npclient_name},
+    {"tell", npclient_tell},
+    {"yell", npclient_yell}
 };
 const int NCMD = (sizeof(Builtin_Cmds)/sizeof(struct builtin_cmd));
 
