@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <signal.h>
 #include <sys/types.h>
 #include "debug.h"
 
@@ -22,6 +23,7 @@ struct Command {
     char **argv;
     int fds[3];
     int pipes[2];
+    int upipe[2];
     char *file_out_pipe;
     struct Command *cmd_first_in_pipe;
     struct Command *cmd_out_pipe;
@@ -39,6 +41,8 @@ struct Command {
     (cmd)->cmd_err_pipe = NULL;         \
     (cmd)->pipes[0] = -1;               \
     (cmd)->pipes[1] = -1;               \
+    (cmd)->upipe[0] = -1;               \
+    (cmd)->upipe[1] = -1;               \
     (cmd)->fds[0] = -1;                 \
     (cmd)->fds[1] = -1;                 \
     (cmd)->fds[2] = -1;                 \
@@ -71,6 +75,7 @@ static inline struct Command * zallocCmd(void)
             dprintf(lvl, "%s ", (Cmdp)->argv[i]);                                               \
         dprintf(lvl, "\n");                                                                     \
     }                                                                                           \
+    dprintf(lvl, "upipe in==> %d, upipe out==> %d\n", (Cmdp)->upipe[0], (Cmdp)->upipe[1]);      \
     dprintf(lvl, "pipe fd==> %d, %d, %d\n", (Cmdp)->fds[0], (Cmdp)->fds[1], (Cmdp)->fds[2]);     \
     dprintf(lvl, "proc in==> %p, proc out==> %p\n", (Cmdp)->cmd_first_in_pipe, (Cmdp)->cmd_out_pipe); \
     dprintf(lvl, "stdout to file %s\n" , (Cmdp)->file_out_pipe);                                \
@@ -84,6 +89,7 @@ struct Command * parse2Cmd(char *cmdbuf, size_t bufsize, struct Command *head);
     if (fd != -1)           \
         close(fd);          \
 }
+void npshell_sigchld_hdlr(int sig, siginfo_t *info, void *ucontext);
 int execCmd(struct Command *Cmd);
 struct Command * syncCmd(struct Command *head);
 

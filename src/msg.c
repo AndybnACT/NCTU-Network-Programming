@@ -1,3 +1,8 @@
+#ifndef CONFIG
+#include "_config.h"
+#define CONFIG
+#endif
+
 #include "net.h"
 #include "command.h"
 #include "debug.h"

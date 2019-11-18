@@ -1,13 +1,72 @@
 #define _GNU_SOURCE 
+#ifndef CONFIG
+#include "_config.h"
+#define CONFIG
+#endif
+
 #include <stdio.h>
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h> 
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <signal.h>
 #include <string.h>
 #include "command.h"
 #include "debug.h"
+#include "net.h"
+#include "upipe.h"
+
+
+#define FINDCMD_BY_PID(ptr, pid, head){                         \
+    ptr = head;                                                 \
+    while (ptr->pid != pid) {                                   \
+        ptr = ptr->next;                                        \
+        if (ptr->next == NULL) {                                \
+            dprintf(0, "error finding Cmd with pid = %d", pid); \
+            ptr = NULL;                                         \
+            break;                                              \
+        }                                                       \
+    }                                                           \
+}
+
+// read:
+//      SA_NOCLDSTOP
+//      SA_NOCLDWAIT
+extern struct Command *Cmd_Head;
+void npshell_sigchld_hdlr(int sig, siginfo_t *info, void *ucontext)
+{
+    int status = 0;
+    pid_t pid; // = info->si_pid;  !! pending `SIGCHLD`s can be coalesced
+    struct Command *signaled_cmd;
+    
+    while (1) {
+        pid = waitpid(-1, &status, WNOHANG);
+        if (pid <= 0) {
+            break;
+        }
+        dprintf(0, "npshell_sigchld_hdlr: unregistering pid %d \n", pid);
+        
+        FINDCMD_BY_PID(signaled_cmd, pid, Cmd_Head);
+        if (!signaled_cmd) {
+            exit(-1);
+        }
+        
+        if (WIFEXITED(status) || WIFSIGNALED(status)) {
+            signaled_cmd->stat = STAT_KILL;
+            signaled_cmd->exit_code = WIFEXITED(status) ? 
+                                     WEXITSTATUS(status):WTERMSIG(status);
+#ifdef CONFIG_SERVER3
+            upipe_release(signaled_cmd->upipe[0]);
+#endif /* CONFIG_SERVER3 */
+            signaled_cmd->stat = STAT_FINI;
+        }else{
+            dprintf(0, "npshell_sigchld_hdlr: Error !!!\n");
+            signaled_cmd->stat = STAT_KILL;
+        }
+    }
+    return;
+}
 
 int child_dupfd(int old, int new)
 { // only used in child
@@ -75,6 +134,38 @@ int fill_pipe_fd(struct Command *source, struct Command *dest, int _w, int _r)
     }
     return 0;
 }
+
+#ifdef CONFIG_SERVER3
+int percmd_upipe(struct Command *percmd)
+{
+    int fd;
+    if (percmd->upipe[0] != -1) {
+        if (percmd->fds[0] != -1) {
+            printf("Error, input of upipe conflicts with preallocated pipes\n");
+            exit(-1);
+        }
+        fd = upipe_get_readend(percmd->upipe[0]);
+        if (fd < 0) {
+            percmd->upipe[0] = -1;
+            fd = -1;
+        }
+        percmd->fds[0] = fd;
+    }
+    if (percmd->upipe[1] != -1) {
+        if (percmd->fds[1] != -1) {
+            printf("Error, output of upipe conflicts with preallocated pipes\n");
+            exit(-1);
+        }
+        fd = upipe_set_writeend(percmd->upipe[1], 1);
+        if (fd < 0) {
+            percmd->upipe[0] = -1;
+            fd = -1;
+        }
+        percmd->fds[1] = fd;
+    }
+    return 0;
+}
+#endif /* CONFIG_SERVER3 */
 
 int percmd_pipes(struct Command *percmd)
 {
@@ -145,6 +236,7 @@ int percmd_exec(struct Command *percmd)
     int ret;
     sigset_t blk_chld, orig;
     int fderr;
+    int fd;
     
     if (percmd->exec[0] != '.' && percmd->exec[0] != '/') {
         // lookup in PATH and builtin cmd
@@ -215,6 +307,10 @@ safe_close:
     SAFE_CLOSEFD(percmd->fds[0]);
     SAFE_CLOSEFD(percmd->pipes[0]);
     SAFE_CLOSEFD(percmd->pipes[1]);
+    if (percmd->upipe[1] != -1) {
+        fd = upipe_get_writeend(percmd->upipe[1]);
+        close(fd);
+    }
     if (percmd->file_out_pipe)
         SAFE_CLOSEFD(percmd->fds[1]);
     
@@ -229,6 +325,9 @@ int execCmd(struct Command *Cmdhead)
     Cmd = Cmdhead;
     while (Cmd->stat != STAT_READY) {
         if (Cmd->stat == STAT_SET) {
+#ifdef CONFIG_SERVER3
+            percmd_upipe(Cmd);
+#endif /* CONFIG_SERVER3 */
             percmd_pipes(Cmd);
             percmd_file(Cmd);
             percmd_exec(Cmd); // do fork-exec routines

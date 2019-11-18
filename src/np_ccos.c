@@ -1,3 +1,7 @@
+#ifndef CONFIG
+#include "_config.h"
+#define CONFIG
+#endif
 #include "npshell.h"
 #include "command.h"
 #include "debug.h"
@@ -71,11 +75,16 @@ int stream_forward(const int fd, FILE **stream_ptr, char *mode)
     int rc, newfd;
     
     newfd = fileno(*stream_ptr);
+    dprintf(0, "newfd = %d, oldfd = %d\n", newfd, fd);
     fclose(*stream_ptr);
-    dup2(fd, newfd);
+    rc = dup2(fd, newfd);
+    if (rc == -1) {
+        perror("dup2");
+    }
     
     *stream_ptr = fdopen(newfd, mode);
-    if (!stream_ptr) {
+    if (!(*stream_ptr)) {
+        perror("fdopen");
         exit(-9);
     }
     rc = setvbuf(*stream_ptr, NULL, _IONBF, 0);

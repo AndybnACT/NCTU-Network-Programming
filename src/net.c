@@ -1,3 +1,8 @@
+#ifndef CONFIG
+#include "_config.h"
+#define CONFIG
+#endif
+
 #include "net.h"
 
 #ifdef CONFIG_SERVER1
@@ -10,6 +15,7 @@ int npclient_yell(int argc, char *argv[]) {return -1;}
 #ifdef CONFIG_SERVER3
 #include "command.h"
 #include "msg.h"
+#include "upipe.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -135,6 +141,7 @@ int npclient_init(int fd, char *ipmsg)
     printf("%s%s%s", SEPERATOR, BANNERMSG, SEPERATOR);
     
     msg_init();
+    upipe_init();
     
     // welcome msg
     Self.msg.dst_id = -1;
@@ -174,12 +181,19 @@ int npclient_name(int argc, char *argv[])
         fprintf(stdout, "error: name exceed namebuf\n");
         return -1;
     }
+    
+    // check if name exists
+    
+    // set boardcast msg
+    
+    // set name
     memcpy(Self.name, argv[1], len+1);
+    
+    // send msg
     
     return 0;
 }
 
-#define USRNOTFOUND(id) "*** Error: user #%d does not exist yet. ***\n", (id)
 
 int npclient_tell(int argc, char *argv[])
 {

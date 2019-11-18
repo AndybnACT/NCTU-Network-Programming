@@ -1,6 +1,6 @@
 include ../common.mk
 
-OBJ = main.o command.o exec.o env.o net.o np_ccos.o msg.o
+OBJ = main.o command.o exec.o env.o net.o np_ccos.o msg.o upipe.o
 
 all:
 	echo "#define CONFIG_SERVER1" > _config.h

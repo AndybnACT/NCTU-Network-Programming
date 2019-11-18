@@ -1,4 +1,8 @@
+#ifndef CONFIG
 #include "_config.h"
+#define CONFIG
+#endif
+
 #include <unistd.h>
 
 int npclient_who(int argc, char *argv[]);
@@ -14,6 +18,7 @@ int npclient_yell(int argc, char *argv[]);
 
 
 #ifdef CONFIG_SERVER3
+#include <stdio.h>
 
 #define MAXUSR 30
 int npserver_init(void);
@@ -35,11 +40,17 @@ struct message{
     char volatile message[1024];
 };
 
+struct user_pipe{
+    int volatile signaled;
+    char volatile path[512];
+};
+
 #define RESET_USR(x){             \
     (x)->pid = -1;                \
     (x)->stat = 0;                \
     (x)->name[0] = '\0';          \
-    (x)->signaled = 0;            \
+    (x)->upipe.signaled = 0;      \
+    (x)->upipe.path[0] = '\0';    \
     (x)->msg.dst_id = -2;         \
     (x)->msg.message[0] = '\0';   \
 }
@@ -54,7 +65,7 @@ struct usr_struct {
     int stat;
     char name[25];
     char netname[30];
-    int signaled;
+    struct user_pipe upipe;
     struct message msg;
 };
 
@@ -73,5 +84,20 @@ struct mt_unsafe_mem_obj{
 #define USRSIZE PERUSRSIZE*MAXUSR
 
 #define ROUNDUP(x) (((x) + 0xFFF) & (~0xFFF))
+
+#define USRNOTFOUND(id) "*** Error: user #%d does not exist yet. ***\n", (id)
+static inline int usrchk(int dstid)
+{
+    do {                                            
+        if ((dstid) < MAXUSR && (dstid) > 0){       
+            if (UsrLst[dstid].stat == USTAT_USED) { 
+                break;                              
+            }                                       
+        }                                           
+        fprintf(stdout, USRNOTFOUND(dstid));        
+        return -1;                                  
+    } while(0);
+    return 0;
+}
 
 #endif /* CONFIG_SERVER3 */

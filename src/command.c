@@ -121,7 +121,51 @@ int npipe_setcmd(int number, struct Command *head, int pipe_stderr)
     return 0;
 }
 
-#define CMDSEP "|>!"
+int upipe_setcmd(struct token *tokp, struct Command *cmd, int rw)
+{
+    char *numstr = tokp->name+1;
+    int number;
+    
+    errno = 0;
+    number = (int) strtol(numstr, NULL, 10);
+    if (errno) {
+        printf("Error, unable to parse user pipe %s\n", numstr);
+        perror("strtol");
+        exit(-1);
+    }
+    
+    cmd->upipe[rw] = number;
+    return 0;
+}
+
+struct token * tok2upipe(struct token *tokp, struct Command *head)
+{
+    struct token *lookup_tok = tokp;
+    
+    for (; lookup_tok->name; lookup_tok = lookup_tok->next) {
+        switch (*lookup_tok->name) {
+            case '<':
+                if (lookup_tok->len == 1) {
+                    return tokp;
+                }
+                upipe_setcmd(lookup_tok, head, 0);
+                tokp = tokp->next;
+                break;
+            case '>':
+                if (lookup_tok->len == 1) {
+                    return tokp;
+                }
+                upipe_setcmd(lookup_tok, head, 1);
+                tokp = tokp->next;
+                break;
+            default:
+                return tokp;
+        }
+    }
+    return tokp;
+}
+
+#define CMDSEP "|>!<"
 
 struct token * tok2npipe(struct token *tokp, struct Command *head)
 {
@@ -255,9 +299,13 @@ struct Command * parse2Cmd(char *cmdbuf, size_t bufsize, struct Command *head)
         head->argv[argc] = NULL;
         head->argc = argc;
         
-        if (tmptokp->name) // must be '!' or '|' or '>'
-            tmptokp = tok2npipe(tmptokp, head);
         
+        if (tmptokp->name){ // must be '!' or '|' or '>' or '<'
+            tmptokp = tok2upipe(tmptokp, head);
+        }
+        if (tmptokp->name) {
+            tmptokp = tok2npipe(tmptokp, head);
+        }
         head->stat = STAT_SET; 
         if (!head->next)
             head->next = zallocCmd(); 
