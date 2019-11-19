@@ -6,39 +6,42 @@
 #include "net.h"
 #include "command.h"
 #include "debug.h"
-#include <signal.h>
 #include <string.h>
 
-#ifdef CONFIG_SERVER3
+#if defined(CONFIG_SERVER2) || defined(CONFIG_SERVER3)
 
-static inline int handle_msg(struct message *msg, int sender)
+static inline int handle_msg(struct message *msg, int sender, int fd)
 {
     int len = strlen((char*) msg->message);
     int namelen = strlen(UsrLst[sender].name);
-    
+
+#ifdef CONFIG_SERVER3
     if ((msg->dst_id == selfid) && msg->stat == MSG_SIGNALED) {
+#endif /* CONFIG_SERVER3 */
         switch (msg->type) {
             case MSG_TYPE_SYS:
-                write(1, (char*) msg->message, len < 1024 ? len : 1024);
+                write(fd, (char*) msg->message, len < 1024 ? len : 1024);
                 break;
             case MSG_TYPE_TELL:
-                write(1, "*** ", 4);
-                write(1, UsrLst[sender].name, namelen < 25 ? namelen : 25 );
-                write(1, " told you ***: ", 15);
-                write(1, (char*) msg->message, len < 1024 ? len : 1024);
-                write(1, "\n", 2);
+                write(fd, "*** ", 4);
+                write(fd, UsrLst[sender].name, namelen < 25 ? namelen : 25 );
+                write(fd, " told you ***: ", 15);
+                write(fd, (char*) msg->message, len < 1024 ? len : 1024);
+                write(fd, "\n", 2);
                 break;
             case MSG_TYPE_YELL:
-                write(1, "*** ", 4);
-                write(1, UsrLst[sender].name, namelen < 25 ? namelen : 25 );
-                write(1, " yelled ***: ", 13);
-                write(1, (char*) msg->message, len < 1024 ? len : 1024);
-                write(1, "\n", 2);
+                write(fd, "*** ", 4);
+                write(fd, UsrLst[sender].name, namelen < 25 ? namelen : 25 );
+                write(fd, " yelled ***: ", 13);
+                write(fd, (char*) msg->message, len < 1024 ? len : 1024);
+                write(fd, "\n", 2);
                 break;
             default:
-                write(1, "Error in handle_msg\n", 21);
+                write(fd, "Error in handle_msg\n", 21);
                 break;
+#ifdef CONFIG_SERVER3
         }
+#endif /* CONFIG_SERVER3 */        
         
         msg->dst_id = -1;
         msg->stat = MSG_COMPLETED;
@@ -46,6 +49,35 @@ static inline int handle_msg(struct message *msg, int sender)
     }
     return -1;
 }
+
+#ifdef CONFIG_SERVER2
+int msg_init(void)
+{
+    // no explicit initialization routine is needed
+    return 0;
+}
+
+int msg_send(struct message *msg, int force)
+{
+    int dstid = msg->dst_id;
+    int dstfd;
+
+    if (dstid == -1) {
+        dstid = 1;
+        FOR_EACH_USR(dstid){
+            dstfd = UsrLst[dstid].connfd;
+            handle_msg(msg, selfid, dstfd);
+        }
+    }else{
+        dstfd = UsrLst[dstid].connfd;
+        handle_msg(msg, selfid, dstfd);
+    }
+    return 0;
+}
+#endif /* CONFIG_SERVER2 */
+
+#ifdef CONFIG_SERVER3
+#include <signal.h>
 
 void msg_hdlr(int sig, siginfo_t *info, void *ucontext)
 {
@@ -57,7 +89,7 @@ void msg_hdlr(int sig, siginfo_t *info, void *ucontext)
     FOR_EACH_USR(sender_id){
         if (UsrLst[sender_id].pid == srcpid) {
             msg = &UsrLst[sender_id].msg;
-            handle_msg(msg, sender_id);
+            handle_msg(msg, sender_id, 1);
             goto success;
         }
     }
@@ -128,3 +160,4 @@ int msg_send(struct message *msg, int force)
     return 0;
 }
 #endif /* CONFIG_SERVER3 */
+#endif /* CONFIG_SERVER3 || CONFIG_SERVER2 */

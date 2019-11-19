@@ -74,6 +74,11 @@ int stream_forward(const int fd, FILE **stream_ptr, char *mode)
 {
     int rc, newfd;
     
+#ifdef CONFIG_SERVER2
+    newfd = fd;
+#endif /* CONFIG_SERVER2 */
+
+#if defined(CONFIG_SERVER3) || defined(CONFIG_SERVER1)
     newfd = fileno(*stream_ptr);
     dprintf(0, "newfd = %d, oldfd = %d\n", newfd, fd);
     fclose(*stream_ptr);
@@ -81,6 +86,7 @@ int stream_forward(const int fd, FILE **stream_ptr, char *mode)
     if (rc == -1) {
         perror("dup2");
     }
+#endif /* CONFIG_SERVER3 || CONFIG_SERVER1 */
     
     *stream_ptr = fdopen(newfd, mode);
     if (!(*stream_ptr)) {
@@ -151,6 +157,11 @@ int main(int argc, char const *argv[]) {
     register_chld();
 #endif /* CONFIG_SERVER3 */
     
+#ifdef CONFIG_SERVER2
+    /* no return */
+    np_single_proc(sockfd);
+#endif /* CONFIG_SERVER2 */
+
     while (1) {
         rc = listen(sockfd, MAXUSR);
         if (rc) {

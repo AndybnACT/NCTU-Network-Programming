@@ -15,20 +15,49 @@
 #include "command.h"
 #include "debug.h"
 #include "net.h"
+
+#if defined(CONFIG_SERVER3) || defined(CONFIG_SERVER2)
 #include "upipe.h"
+#endif /* CONFIG_SERVER3 || CONFIG_SERVER2 */
 
 
+#if defined(CONFIG_SERVER1) || defined(CONFIG_SERVER3)
 #define FINDCMD_BY_PID(ptr, pid, head){                         \
     ptr = head;                                                 \
     while (ptr->pid != pid) {                                   \
         ptr = ptr->next;                                        \
-        if (ptr->next == NULL) {                                \
+        if (ptr == NULL) {                                      \
             dprintf(0, "error finding Cmd with pid = %d", pid); \
             ptr = NULL;                                         \
             break;                                              \
         }                                                       \
     }                                                           \
 }
+#endif /* CONFIG_SERVER1 || CONFIG_SERVER3 */
+
+#ifdef CONFIG_SERVER2
+
+#define __FINDCMD_BY_PID(ptr, pid, head){   \
+    ptr = head;                             \
+    while (ptr->pid != pid) {               \
+        ptr = ptr->next;                    \
+        if (ptr == NULL)                    \
+            break;                          \
+    }                                       \
+}
+
+#define FINDCMD_BY_PID(ptr, pid, dummy){                    \
+    for (size_t i = 1; i < MAXUSR; i++) {                   \
+        __FINDCMD_BY_PID(ptr, pid, &UsrLst[i].cmdhead);     \
+        if (ptr)                                            \
+            break;                                          \
+    }                                                       \
+    if (!ptr) {                                             \
+        dprintf(0, "error finding Cmd with pid = %d", pid); \
+    }                                                       \
+}
+
+#endif /* CONFIG_SERVER2 */
 
 // read:
 //      SA_NOCLDSTOP
@@ -135,7 +164,7 @@ int fill_pipe_fd(struct Command *source, struct Command *dest, int _w, int _r)
     return 0;
 }
 
-#ifdef CONFIG_SERVER3
+#if defined(CONFIG_SERVER3) || defined(CONFIG_SERVER2) 
 int percmd_upipe(struct Command *percmd)
 {
     int fd;
@@ -165,7 +194,7 @@ int percmd_upipe(struct Command *percmd)
     }
     return 0;
 }
-#endif /* CONFIG_SERVER3 */
+#endif /* CONFIG_SERVER3 || CONFIG_SERVER2 */
 
 int percmd_pipes(struct Command *percmd)
 {
@@ -236,7 +265,9 @@ int percmd_exec(struct Command *percmd)
     int ret;
     sigset_t blk_chld, orig;
     int fderr;
-    int fd;
+#if defined(CONFIG_SERVER2) || defined(CONFIG_SERVER3)
+    int upipe_fd;
+#endif /* CONFIG_SERVER2 || CONFIG_SERVER3 */
     
     if (percmd->exec[0] != '.' && percmd->exec[0] != '/') {
         // lookup in PATH and builtin cmd
@@ -248,7 +279,13 @@ int percmd_exec(struct Command *percmd)
                 percmd->stat = STAT_FINI;
                 percmd->exit_code = ret;
             }else if (ret == -CMD_UNKNOWN) {
+
+#if defined(CONFIG_SERVER1) || defined(CONFIG_SERVER3)
                 fderr = percmd->fds[2] == -1 ? 2:percmd->fds[2];
+#endif /* CONFIG_SERVER1 || CONFIG_SERVER3 */
+#ifdef CONFIG_SERVER2
+                fderr = percmd->fds[2] == -1 ? Self.connfd:percmd->fds[2];
+#endif /* CONFIG_SERVER2 */
                 
                 percmd->stat = STAT_FINI;
                 percmd->exit_code = -1;
@@ -283,6 +320,11 @@ retry:
         if (percmd->source) {
             child_source_exec(percmd);
         }
+#ifdef CONFIG_SERVER2
+        percmd->fds[0] = (percmd->fds[0] == -1) ? Self.connfd:percmd->fds[0];
+        percmd->fds[1] = (percmd->fds[1] == -1) ? Self.connfd:percmd->fds[1];
+        percmd->fds[2] = (percmd->fds[2] == -1) ? Self.connfd:percmd->fds[2];
+#endif /* CONFIG_SERVER2 */
         child_dupfd(percmd->fds[0], 0);
         child_dupfd(percmd->fds[1], 1);
         child_dupfd(percmd->fds[2], 2);
@@ -307,10 +349,12 @@ safe_close:
     SAFE_CLOSEFD(percmd->fds[0]);
     SAFE_CLOSEFD(percmd->pipes[0]);
     SAFE_CLOSEFD(percmd->pipes[1]);
+#if defined(CONFIG_SERVER2) || defined(CONFIG_SERVER3)
     if (percmd->upipe[1] != -1) {
-        fd = upipe_get_writeend(percmd->upipe[1]);
-        close(fd);
+        upipe_fd = upipe_get_writeend(percmd->upipe[1]);
+        close(upipe_fd);
     }
+#endif /* CONFIG_SERVER2 || CONFIG_SERVER3 */
     if (percmd->file_out_pipe)
         SAFE_CLOSEFD(percmd->fds[1]);
     
@@ -325,9 +369,9 @@ int execCmd(struct Command *Cmdhead)
     Cmd = Cmdhead;
     while (Cmd->stat != STAT_READY) {
         if (Cmd->stat == STAT_SET) {
-#ifdef CONFIG_SERVER3
+#if defined(CONFIG_SERVER3) || defined(CONFIG_SERVER2)
             percmd_upipe(Cmd);
-#endif /* CONFIG_SERVER3 */
+#endif /* CONFIG_SERVER3 || CONFIG_SERVER2 */
             percmd_pipes(Cmd);
             percmd_file(Cmd);
             percmd_exec(Cmd); // do fork-exec routines

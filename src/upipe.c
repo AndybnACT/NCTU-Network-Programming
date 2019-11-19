@@ -2,23 +2,69 @@
 #include "_config.h"
 #define CONFIG
 #endif
+#define _GNU_SOURCE 
 
 #include "net.h"
-
-#ifdef CONFIG_SERVER3
 #include "command.h"
 #include "debug.h"
 
 #include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <errno.h>
+
+#define BUFSIZE 256
+#define PIPE_EXIST "*** Error: the pipe #%d->#%d already exists. ***\n"
+
+#ifdef CONFIG_SERVER2
+
+int upipe_init()
+{
+    memset(Self.upipe_in, -1, sizeof(int)*MAXUSR);
+    memset(Self.upipe_out, -1, sizeof(int)*MAXUSR);
+    
+    return 0;
+}
+
+int upipe_set_pipes(int dstid)
+{
+    int rc;
+    int fds[2];
+    
+    if (UsrLst[dstid].upipe_in[selfid] != -1) {
+        fprintf(stdout, PIPE_EXIST, selfid, dstid);
+        dprintf(2, "UsrLst[%d].upipe_in[%d] = %d\n", 
+                    dstid, selfid, UsrLst[dstid].upipe_in[selfid]);
+        return -1;
+    }
+    
+retry:
+    rc = pipe2(fds, O_CLOEXEC);
+    if (rc == -1) {
+        perror("upipe pipe");
+        // Error handling
+        switch (errno) {
+            case EMFILE:
+            case ENFILE:
+                printf("number of open fd has been reach\n");
+                goto retry;
+        }
+        return -1;
+    }
+    Self.upipe_out[dstid] = fds[1];
+    UsrLst[dstid].upipe_in[selfid] = fds[0];
+    return fds[1];
+}
+
+#endif /* CONFIG_SERVER2 */
+
+#ifdef CONFIG_SERVER3
 #include <signal.h>
 
 /* fifo, open */
 #include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
 
-#include <unistd.h>
-#include <errno.h>
 
 int upipe_in[MAXUSR] = {-1, };
 int upipe_out[MAXUSR] = {-1, };
@@ -82,8 +128,6 @@ int upipe_init()
     
     return 0;
 }
-#define BUFSIZE 256
-#define PIPE_EXIST "*** Error: the pipe #%d->#%d already exists. ***"
 int initialize_fifo(int dstid, char *path)
 {
     int rc;
@@ -126,17 +170,28 @@ int force_upipe(int dstid, char *pth, int force)
     return 0;
 }
 
+#endif /* CONFIG_SERVER3 */
+
+
+#if defined(CONFIG_SERVER2) || defined(CONFIG_SERVER3)
 int upipe_set_writeend(int dstid, int force)
 {
     int fd;
     int rc;
+#ifdef CONFIG_SERVER3
     char path[BUFSIZE];
+#endif /* CONFIG_SERVER3 */
     
     rc = usrchk(dstid);
     if (rc) {
         return -1;
     }
 
+#ifdef CONFIG_SERVER2
+    fd = upipe_set_pipes(dstid);
+#endif /* CONFIG_SERVER2 */
+
+#ifdef CONFIG_SERVER3
     initialize_fifo(dstid, path);
     force_upipe(dstid, path, force);
     
@@ -145,13 +200,15 @@ int upipe_set_writeend(int dstid, int force)
         perror("open");
         return -1;
     }
-    write(fd, "ok!", 4);
-    
+    write(fd, "ok!", 4); 
+        
     upipe_out[dstid] = fd;
+#endif /* CONFIG_SERVER3 */
+
     return fd;
 }
 
-#define PIPENOTFOUND "*** Error: the pipe #%d->#%d does not exist yet. ***"
+#define PIPENOTFOUND "*** Error: the pipe #%d->#%d does not exist yet. ***\n"
 int upipe_get_readend(int srcid)
 {
     int rc;
@@ -159,6 +216,10 @@ int upipe_get_readend(int srcid)
     if (rc) {
         return -1;
     }
+    
+#ifdef CONFIG_SERVER2
+    int *upipe_in = Self.upipe_in;
+#endif /* CONFIG_SERVER2 */    
     
     if (upipe_in[srcid] == -1) {
         fprintf(stdout, PIPENOTFOUND, srcid, selfid);
@@ -176,6 +237,10 @@ int upipe_get_writeend(int dstid)
         return -1;
     }
     
+#ifdef CONFIG_SERVER2
+    int *upipe_out = Self.upipe_out;
+#endif /* CONFIG_SERVER2 */    
+    
     if (upipe_out[dstid] == -1) {
         fprintf(stdout, PIPENOTFOUND, dstid, selfid);
         return -1;
@@ -191,6 +256,10 @@ int upipe_release(int srcid)
     if (srcid == -1)
         return 0;
     
+#ifdef CONFIG_SERVER2
+    int *upipe_in = Self.upipe_in;
+#endif /* CONFIG_SERVER2 */
+
     fd = upipe_in[srcid];
     if (fd == -1) {
         dprintf(2, "bug in upipe_release\n");
@@ -198,9 +267,11 @@ int upipe_release(int srcid)
     close(fd);
     upipe_in[srcid] = -1;
     
+#ifdef CONFIG_SERVER3
     char path[BUFSIZE];
     snprintf(path, BUFSIZE, "%s/#%d_#%d", FIFO_PREFIX, srcid, selfid);
     unlink(path);
+#endif /* CONFIG_SERVER3 */
     return 0;
 }
-#endif /* CONFIG_SERVER3 */
+#endif /* CONFIG_SERVER2 || CONFIG_SERVER3 */

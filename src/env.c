@@ -104,7 +104,7 @@ int command_lookup(struct Command *cmdp)
 int _builtin_cmd_exec(struct Command *cmdp)
 {
     if (!cmdp->_func)
-        printf("BUG!! builtin function = NULL for cmd %s\n", cmdp->exec);
+        fprintf(stdout, "BUG!! builtin function = NULL for cmd %s\n", cmdp->exec);
     
     return cmdp->_func(cmdp->argc, cmdp->argv);
 }
@@ -113,12 +113,12 @@ int do_printenv(int argc, char **argv)
 {
     char *env = getenv(argv[1]);
     if (argc != 2) {
-        printf("argc incorrect\n");
-        printf("printenv usage: printenv VAR\n");
+        fprintf(stdout, "argc incorrect\n");
+        fprintf(stdout, "printenv usage: printenv VAR\n");
         return -1;
     }
     if (env) {
-        printf("%s\n", env);
+        fprintf(stdout, "%s\n", env);
     }
     return 0;
 }
@@ -126,8 +126,8 @@ int do_printenv(int argc, char **argv)
 int do_setenv(int argc, char **argv)
 {
     if (argc != 3) {
-        printf("argc incorrect\n");
-        printf("setenv usage: setenv VAR AS_SOMETHING\n");
+        fprintf(stdout, "argc incorrect\n");
+        fprintf(stdout, "setenv usage: setenv VAR AS_SOMETHING\n");
         return -1;
     }
     return setenv(argv[1], argv[2], 1);
@@ -135,6 +135,12 @@ int do_setenv(int argc, char **argv)
 
 int do_exit(int argc, char **argv)
 {
+
+#ifdef CONFIG_SERVER2
+    Self.exit = 1;
+    return 0;
+#endif /* CONFIG_SERVER2 */
+
     exit(0);
 }
 

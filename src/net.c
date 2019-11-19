@@ -12,7 +12,7 @@ int npclient_tell(int argc, char *argv[]) {return -1;}
 int npclient_yell(int argc, char *argv[]) {return -1;}
 #endif /* CONFIG_SERVER1 */
 
-#ifdef CONFIG_SERVER3
+#if defined(CONFIG_SERVER3) || defined(CONFIG_SERVER2)
 #include "command.h"
 #include "msg.h"
 #include "upipe.h"
@@ -31,7 +31,7 @@ int selfid;
 struct usr_struct *UsrLst;
 struct mt_unsafe_mem_obj shmem_obj;
 
-
+#ifdef CONFIG_SERVER3
 static int np_shmem_init(int shmfd, int prot)
 {
     shmem_obj.base = mmap(NULL, ROUNDUP(USRSIZE), prot, MAP_SHARED, shmfd, 0);
@@ -41,12 +41,14 @@ static int np_shmem_init(int shmfd, int prot)
     shmem_obj.limit= (void*)((char*)shmem_obj.base + ROUNDUP(USRSIZE));
     return 0;
 }
+#endif /* CONFIG_SERVER3 */
 
 int npserver_init()
 {
-    int rc;
-    int fd;
+    int fd = -1;
     
+#ifdef CONFIG_SERVER3
+    int rc;
     fd = shm_open("npshell_shared", O_RDWR|O_CREAT|O_TRUNC, 0666);
     if (fd == -1) {
         perror("shm_open");
@@ -60,13 +62,18 @@ int npserver_init()
         exit(-1);
     }
     
-    
     rc = np_shmem_init(fd, PROT_READ|PROT_WRITE);
     if (rc == -1) {
         perror("server mmap");
         exit(-1);
     }
     UsrLst = (struct usr_struct *)shmem_obj.base;
+#endif /* CONFIG_SERVER3 */
+
+#ifdef CONFIG_SERVER2
+    UsrLst = (struct usr_struct *) malloc(MAXUSR*sizeof(struct usr_struct));
+#endif /* CONFIG_SERVER2 */
+
     for (int i = 0; i < MAXUSR; i++) {
         RESET_USR(&UsrLst[i]);
         UsrLst[i].id = i;
@@ -78,6 +85,12 @@ int npserver_init()
     strcpy(UsrLst[0].name, "npserver");
     selfid = 0;
     
+#ifdef CONFIG_SERVER2
+    RESETCMD(&Self.cmdhead);
+    Self.in = stdin;
+    Self.out = stdout;
+    Self.err = stderr;
+#endif /* CONFIG_SERVER2 */
     
     dprintf(1, "npserver: shared memory mapped @ %p, current top = %p, limit = %p\n",
                 shmem_obj.base, shmem_obj.top, shmem_obj.limit);
@@ -85,8 +98,9 @@ int npserver_init()
     return fd;
 }
 
-#define LEAVE_MSG(n) "*** User ’%s’ left. *** ", (n)
+#define LEAVE_MSG(n) "*** User ’%s’ left. ***\n", (n)
 
+#ifdef CONFIG_SERVER3
 int npserver_reap_client(pid_t pid)
 {
     int killid;
@@ -107,6 +121,28 @@ int npserver_reap_client(pid_t pid)
     }
     return -1;
 }
+#endif /* CONFIG_SERVER3 */
+#ifdef CONFIG_SERVER2
+int npserver_reap_client(int id)
+{
+    struct message *msg = &Self.msg;
+    
+    close(UsrLst[id].connfd);
+    fclose(UsrLst[id].in);
+    fclose(UsrLst[id].out);
+    fclose(UsrLst[id].err);
+    
+    snprintf((char *)msg->message, 1024,
+            LEAVE_MSG(UsrLst[id].name));
+    msg->dst_id = -1;
+    msg->type = MSG_TYPE_SYS;
+    msg_send(msg, 1);
+    
+    RESET_USR(&UsrLst[id]);
+    return 0;
+}
+#endif /* CONFIG_SERVER2 */
+
 
 int client_initialize_self()
 {
@@ -130,12 +166,24 @@ int client_initialize_self()
 #define BANNERMSG "** Welcome to the information server. **\n"
 #define PERUSRMSG(ipbuf) "*** User ’(no name)’ entered from %s. ***\n", (ipbuf)
 
+extern int stream_forward(const int fd, FILE **stream_ptr, char *mode);
+extern int np_switch_to(int id);
 int npclient_init(int fd, char *ipmsg)
 {
     int id;
     
     id = client_initialize_self();
     memcpy(Self.netname, ipmsg, strlen(ipmsg));
+#ifdef CONFIG_SERVER2
+    Self.connfd = fd;
+    RESETCMD(&Self.cmdhead);
+    Self.cmdhead.stat = STAT_READY;
+    Self.cmdhead.next = NULL;
+    stream_forward(fd, &Self.in, "r");
+    stream_forward(fd, &Self.out, "w");
+    stream_forward(fd, &Self.err, "w");
+    np_switch_to(selfid);
+#endif /* CONFIG_SERVER2 */
     
     dprintf(1, "npclient: id=%d, UsrLst[%d].pid=%d\n", Self.id, id, Self.pid);
     printf("%s%s%s", SEPERATOR, BANNERMSG, SEPERATOR);
@@ -259,4 +307,4 @@ int npclient_yell(int argc, char *argv[])
     
     return 0;
 }
-#endif /* CONFIG_SERVER3 */
+#endif /* CONFIG_SERVER3 || CONFIG_SERVER2 */

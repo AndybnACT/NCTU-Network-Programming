@@ -1,3 +1,19 @@
+#ifndef CMD_H
+#define CMD_H
+
+#ifndef CONFIG
+#include "_config.h"
+#define CONFIG
+#endif
+
+#ifdef CONFIG_SERVER2
+/* np_single_proc.c */
+int np_single_proc(int sockfd);
+/* main.c */
+int npshell_init(void);
+int npshell_exec_once(void);
+#endif /* CONFIG_SERVER2 */
+
 #include <stdlib.h>
 #include <signal.h>
 #include <sys/types.h>
@@ -100,3 +116,4 @@ struct Command * syncCmd(struct Command *head);
 
 int command_lookup(struct Command *cmdp);
 int _builtin_cmd_exec(struct Command *cmdp);
+#endif

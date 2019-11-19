@@ -17,13 +17,22 @@ int npclient_yell(int argc, char *argv[]);
 #endif /* CONFIG_SERVER1 */
 
 
-#ifdef CONFIG_SERVER3
-#include <stdio.h>
-
+#if defined(CONFIG_SERVER3) || defined(CONFIG_SERVER2)
+#ifdef CONFIG_SERVER2
+#include "command.h"
+#endif
 #define MAXUSR 30
+
+#include <stdio.h>
 int npserver_init(void);
-int npserver_reap_client(pid_t pid);
 int npclient_init(int fd, char *inimsg);
+
+#ifdef CONFIG_SERVER3
+int npserver_reap_client(pid_t pid);
+#endif /* CONFIG_SERVER3 */
+#ifdef CONFIG_SERVER2
+int npserver_reap_client(int id);
+#endif /* CONFIG_SERVER2 */
 
 #define MSG_SET       0x1
 #define MSG_SIGNALED  0x2
@@ -55,6 +64,25 @@ struct user_pipe{
     (x)->msg.message[0] = '\0';   \
 }
 
+#ifdef CONFIG_SERVER2
+#undef RESET_USR
+#define RESET_USR(x){             \
+    (x)->pid = -1;                \
+    (x)->stat = 0;                \
+    (x)->name[0] = '\0';          \
+    (x)->upipe.signaled = 0;      \
+    (x)->upipe.path[0] = '\0';    \
+    (x)->msg.dst_id = -2;         \
+    (x)->msg.message[0] = '\0';   \
+    (x)->exit = 0;                \
+    (x)->connfd = -1;             \
+    (x)->in = NULL;               \
+    (x)->out = NULL;              \
+    (x)->err = NULL;              \
+    RESETCMD(&((x)->cmdhead));    \
+}
+#endif /* CONFIG_SERVER2 */
+
 #define USTAT_FREE 0x0
 #define USTAT_USED 0x1
 #define USTAT_DEAD 0x2
@@ -67,6 +95,16 @@ struct usr_struct {
     char netname[30];
     struct user_pipe upipe;
     struct message msg;
+#ifdef CONFIG_SERVER2
+    int exit;
+    int connfd;
+    FILE *in;
+    FILE *out;
+    FILE *err;
+    struct Command cmdhead;
+    int upipe_in[MAXUSR];
+    int upipe_out[MAXUSR];
+#endif /* CONFIG_SERVER2 */
 };
 
 #define FOR_EACH_USR(i) for (; i < MAXUSR; i++) 
@@ -100,4 +138,4 @@ static inline int usrchk(int dstid)
     return 0;
 }
 
-#endif /* CONFIG_SERVER3 */
+#endif /* CONFIG_SERVER3 || CONFIG_SERVER2 */

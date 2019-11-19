@@ -1,3 +1,8 @@
+#ifndef CONFIG
+#include "_config.h"
+#define CONFIG
+#endif
+
 #define _GNU_SOURCE // for var environ
 #include "npshell.h"
 #include <stdio.h>
@@ -12,6 +17,76 @@
 #define NP_ROOT "working_dir"
 
 struct Command *Cmd_Head;
+
+#ifdef CONFIG_SERVER2
+#include "net.h"
+int npshell_init()
+{
+    int ret;
+    struct sigaction sigdesc;
+    dprintf(0, "initializing npshell, pid=%d\n", getpid());
+    
+    sigdesc.sa_sigaction = npshell_sigchld_hdlr;
+    sigdesc.sa_flags = SA_SIGINFO|SA_NOCLDSTOP;
+    dprintf(0, "npshell: registering chld signal handler\n");
+    ret = sigaction(SIGCHLD, &sigdesc, NULL);
+    if (ret) {
+        perror("sigaction");
+        exit(-1);
+    }
+    
+    ret = setenv("PATH", "bin:.", 1);
+    if (ret) {
+        perror("setenv");
+        exit(errno);
+    }
+    return 0;
+}
+
+int npshell_exec_once()
+{
+    int ret;
+    struct Command *cmd_cur;
+    char *cmdbuf = NULL;
+    size_t bufsize = 0;
+    sigset_t blk_chld, orig;
+    sigemptyset(&blk_chld);
+    sigaddset(&blk_chld, SIGCHLD);
+    sigprocmask(SIG_BLOCK, &blk_chld, &orig);
+retry:
+    errno = 0;
+    // memset(testbuf, 0, 1024);
+    // read(Self.connfd, testbuf, 1024 );
+    // write(Self.connfd, testbuf, 1024);
+    ret = getline(&cmdbuf, &bufsize, stdin);
+    if (ret == -1) {
+        if (errno == EINTR) {
+            // dprintf(0, "interrupted syscall\n");
+            goto retry;
+        }
+        perror("getline");
+        free(cmdbuf);
+        return errno;
+    }
+    sigprocmask(SIG_SETMASK, &orig, NULL);
+    
+    // dprintf(0, "===>getline=%d:  %s", ret, cmdbuf);
+    
+    cmd_cur = parse2Cmd(cmdbuf, bufsize, Cmd_Head);
+    // dprintf(0, "-------------------------------\n");
+    // for (struct Command *p = Cmd_Head; p; p = p->next){
+    //     dprintf(0, "......\n");
+    //     dprintCmd(0, p);
+    // }
+    // dprintf(0, "-------------------------------\n");
+    
+    ret = execCmd(cmd_cur);
+    syncCmd(Cmd_Head);
+    return 0;
+}
+
+
+#endif /*CONFIG_SERVER2*/
 
 int npshell(int argc, char const *argv[])
 {
