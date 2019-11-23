@@ -5,17 +5,17 @@ OBJ = main.o command.o exec.o env.o net.o np_ccos.o np_single_proc.o msg.o upipe
 all:
 	echo "#define CONFIG_SERVER1" > _config.h
 	make server
-	cp server ../server1
+	cp server ../np_simple
 	make clean
 	
 	echo "#define CONFIG_SERVER3" > _config.h
 	make server3
-	cp server ../server3
+	cp server ../np_multi_proc
 	make clean
 	
 	echo "#define CONFIG_SERVER2" > _config.h
 	make server
-	cp server ../server2
+	cp server ../np_single_proc
 	make clean
 
 server: $(OBJ)

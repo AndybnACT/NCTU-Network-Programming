@@ -83,6 +83,7 @@ int register_sigint(void)
     struct sigaction sigdesc;
     sigdesc.sa_sigaction = sigint_hdlr;
     sigdesc.sa_flags = SA_SIGINFO;
+    sigaddset(&sigdesc.sa_mask, SIGCHLD);
     dprintf(1, "registering SIGINT signal handler\n");
     
     ret = sigaction(SIGINT, &sigdesc, NULL);

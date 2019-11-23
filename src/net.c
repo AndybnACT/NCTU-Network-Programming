@@ -103,12 +103,14 @@ int npserver_cleanup()
 {
 #ifdef CONFIG_SERVER3
     int rc;
-    rc = shm_unlink(SHM_NAME);
-    if (rc == -1) {
-        perror("shm_unlink");
+    if (selfid == 0) {
+        dprintf(0, "unlinking shm: %s\n", SHM_NAME);
+        rc = shm_unlink(SHM_NAME);
+        if (rc == -1) {
+            perror("shm_unlink");
+        }
+        // remove all user pipe
     }
-    // remove all user pipe
-    
 #endif /* CONFIG_SERVER3 */
     return 0;
 }
