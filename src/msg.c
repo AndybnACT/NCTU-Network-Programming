@@ -27,17 +27,17 @@ static inline int handle_msg(struct message *msg, int sender, int fd)
                 write(fd, UsrLst[sender].name, namelen < 25 ? namelen : 25 );
                 write(fd, " told you ***: ", 15);
                 write(fd, (char*) msg->message, len < 1024 ? len : 1024);
-                write(fd, "\n", 2);
+                write(fd, "\n", 1);
                 break;
             case MSG_TYPE_YELL:
                 write(fd, "*** ", 4);
                 write(fd, UsrLst[sender].name, namelen < 25 ? namelen : 25 );
                 write(fd, " yelled ***: ", 13);
                 write(fd, (char*) msg->message, len < 1024 ? len : 1024);
-                write(fd, "\n", 2);
+                write(fd, "\n", 1);
                 break;
             default:
-                write(fd, "Error in handle_msg\n", 21);
+                write(fd, "Error in handle_msg\n", 20);
                 break;
 #ifdef CONFIG_SERVER3
         }
@@ -93,7 +93,7 @@ void msg_hdlr(int sig, siginfo_t *info, void *ucontext)
             goto success;
         }
     }
-    dprintf(0, "bug! cannot find message by pid=%d in UsrLst\n", srcpid);
+    dprintf(0, "msg: bug! cannot find message by pid=%d in UsrLst\n", srcpid);
     exit(-1);
 success:
     return;

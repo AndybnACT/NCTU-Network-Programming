@@ -245,6 +245,7 @@ struct Command * parse2Cmd(char *cmdbuf, size_t bufsize, struct Command *head)
     struct token tokenlist;
     struct token *tokptr = &tokenlist;
     struct Command *curcmd;
+    char *cmd_cpy = strdup(cmdbuf);
     
     // walk to the first command struct that hasn't been executed
     for (; head && head->stat != STAT_READY; head = head->next) {
@@ -275,6 +276,7 @@ struct Command * parse2Cmd(char *cmdbuf, size_t bufsize, struct Command *head)
         
         tmptokp = tokptr;
         head->exec = strdup(tokptr->name);    
+        head->fullcmd = cmd_cpy;
         
         // get argc
         while (!strchr(CMDSEP, *tmptokp->name)) {
@@ -300,7 +302,7 @@ struct Command * parse2Cmd(char *cmdbuf, size_t bufsize, struct Command *head)
         head->argc = argc;
         
         
-        if (tmptokp->name){ // must be '!' or '|' or '>' or '<'
+        if (tmptokp->name){ // must be '!' or '|' or '>n' or '<n'
             tmptokp = tok2upipe(tmptokp, head);
         }
         if (tmptokp->name) {

@@ -1,3 +1,8 @@
+#ifndef CONFIG
+#include "_config.h"
+#define CONFIG
+#endif
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -18,10 +23,87 @@ struct builtin_cmd Builtin_Cmds[] = {
 };
 const int NCMD = (sizeof(Builtin_Cmds)/sizeof(struct builtin_cmd));
 
+#if defined(CONFIG_SERVER2) || defined(CONFIG_SERVER3)
+int get_envid(struct env_struct *envp, char *name)
+{
+    for (size_t i = 0; i < envp->top; i++) {
+        if (strcmp(name, envp->key[i]) == 0)
+            return i;
+    }
+    return -1;
+}
+
+char* np_getenv(char *name)
+{
+    struct env_struct *envp = &Self.curenv;
+    int id = get_envid(envp, name);
+    if (id == -1) {
+        return NULL;
+    }
+    return envp->value[id];
+}
+
+int env_alloc(struct env_struct *envp)
+{
+    int lim = envp->lim + 10;
+    if (envp->lim == 0) {
+        envp->key = (char**) malloc(10*sizeof(char*));
+        envp->value = (char**) malloc(10*sizeof(char*));
+    }else{
+        envp->key = (char**) realloc(envp->key, lim*sizeof(char*));
+        envp->value = (char**) realloc(envp->value, lim*sizeof(char*));
+    }
+    if (!envp->key || !envp->value) {
+        perror("alloc");
+        exit(-1);
+    }
+    envp->lim = lim;
+    return 0;
+}
+
+int np_setenv(char *name, char *value, int _dummy)
+{
+    struct env_struct *envp = &Self.curenv;
+    int id = get_envid(envp, name);
+    if (id == -1) {
+        id = envp->top;
+        if (envp->top >= envp->lim)
+            env_alloc(envp);
+        envp->key[id] = strdup(name);
+        envp->value[id] = strdup(value);
+        envp->top++;
+    }else{
+        free(envp->value[id]);
+        envp->value[id] = strdup(value);
+    }
+    return 0;
+}
+
+int env_init()
+{
+    struct env_struct *envp = &Self.curenv;
+    
+    envp->lim = 0;
+    envp->top = 0;
+    // leak (alloc'ed but not free'ed) when reusing usr
+    env_alloc(envp);
+    np_setenv("PATH", "bin:.", 1);
+    return 0;
+}
+#endif /* CONFIG_SERVER2 || CONFIG_SERVER3 */
+#ifdef CONFIG_SERVER1
+int np_setenv(char *name, char *value, int _dummy){
+    return setenv(name, value, _dummy);
+}
+char* np_getenv(char *name){
+    return getenv(name);
+}
+#endif
+
 static inline char * _copy_path(void)
 {
     char *path;
-    path = getenv("PATH");
+    path = np_getenv("PATH");
     if (!path) {
         printf("Error, cound not find $PATH\n");
         exit(-1);
@@ -111,7 +193,7 @@ int _builtin_cmd_exec(struct Command *cmdp)
 
 int do_printenv(int argc, char **argv)
 {
-    char *env = getenv(argv[1]);
+    char *env = np_getenv(argv[1]);
     if (argc != 2) {
         fprintf(stdout, "argc incorrect\n");
         fprintf(stdout, "printenv usage: printenv VAR\n");
@@ -130,7 +212,7 @@ int do_setenv(int argc, char **argv)
         fprintf(stdout, "setenv usage: setenv VAR AS_SOMETHING\n");
         return -1;
     }
-    return setenv(argv[1], argv[2], 1);
+    return np_setenv(argv[1], argv[2], 1);
 }
 
 int do_exit(int argc, char **argv)

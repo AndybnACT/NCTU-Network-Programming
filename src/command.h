@@ -35,10 +35,12 @@ struct Command {
     int exit_code;
     int argc;
     int (*_func)(int argc, char **argv);
+    char *fullcmd;
     char *exec;
     char **argv;
     int fds[3];
     int pipes[2];
+    int upipe_err;
     int upipe[2];
     char *file_out_pipe;
     struct Command *cmd_first_in_pipe;
@@ -46,6 +48,11 @@ struct Command {
     struct Command *cmd_err_pipe;
     struct Command *next;
 };
+
+#define ERRFINCMD(cmd){         \
+    (cmd)->stat = STAT_FINI;    \
+    (cmd)->exit_code = -1;      \
+}
 
 #define RESETCMD(cmd) {                 \
     (cmd)->source = 0;                  \
@@ -57,6 +64,7 @@ struct Command {
     (cmd)->cmd_err_pipe = NULL;         \
     (cmd)->pipes[0] = -1;               \
     (cmd)->pipes[1] = -1;               \
+    (cmd)->upipe_err = 0;               \
     (cmd)->upipe[0] = -1;               \
     (cmd)->upipe[1] = -1;               \
     (cmd)->fds[0] = -1;                 \

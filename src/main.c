@@ -5,6 +5,7 @@
 
 #define _GNU_SOURCE // for var environ
 #include "npshell.h"
+#include "env.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -27,7 +28,7 @@ int npshell_init()
     dprintf(0, "initializing npshell, pid=%d\n", getpid());
     
     sigdesc.sa_sigaction = npshell_sigchld_hdlr;
-    sigdesc.sa_flags = SA_SIGINFO|SA_NOCLDSTOP;
+    sigdesc.sa_flags = SA_SIGINFO|SA_NOCLDSTOP|SA_RESTART;
     dprintf(0, "npshell: registering chld signal handler\n");
     ret = sigaction(SIGCHLD, &sigdesc, NULL);
     if (ret) {
@@ -35,7 +36,7 @@ int npshell_init()
         exit(-1);
     }
     
-    ret = setenv("PATH", "bin:.", 1);
+    ret = np_setenv("PATH", "bin:.", 1);
     if (ret) {
         perror("setenv");
         exit(errno);
@@ -49,15 +50,8 @@ int npshell_exec_once()
     struct Command *cmd_cur;
     char *cmdbuf = NULL;
     size_t bufsize = 0;
-    sigset_t blk_chld, orig;
-    sigemptyset(&blk_chld);
-    sigaddset(&blk_chld, SIGCHLD);
-    sigprocmask(SIG_BLOCK, &blk_chld, &orig);
 retry:
     errno = 0;
-    // memset(testbuf, 0, 1024);
-    // read(Self.connfd, testbuf, 1024 );
-    // write(Self.connfd, testbuf, 1024);
     ret = getline(&cmdbuf, &bufsize, stdin);
     if (ret == -1) {
         if (errno == EINTR) {
@@ -68,18 +62,8 @@ retry:
         free(cmdbuf);
         return errno;
     }
-    sigprocmask(SIG_SETMASK, &orig, NULL);
-    
-    // dprintf(0, "===>getline=%d:  %s", ret, cmdbuf);
     
     cmd_cur = parse2Cmd(cmdbuf, bufsize, Cmd_Head);
-    // dprintf(0, "-------------------------------\n");
-    // for (struct Command *p = Cmd_Head; p; p = p->next){
-    //     dprintf(0, "......\n");
-    //     dprintCmd(0, p);
-    // }
-    // dprintf(0, "-------------------------------\n");
-    
     ret = execCmd(cmd_cur);
     syncCmd(Cmd_Head);
     return 0;
@@ -95,14 +79,13 @@ int npshell(int argc, char const *argv[])
     struct Command *cmd_cur;
     struct sigaction sigdesc;
     int ret;
-    sigset_t blk_chld, orig;
     
     dprintf(0, "initializing npshell, pid=%d\n", getpid());
     
     Cmd_Head = zallocCmd();
     cmd_cur = Cmd_Head;
     sigdesc.sa_sigaction = npshell_sigchld_hdlr;
-    sigdesc.sa_flags = SA_SIGINFO|SA_NOCLDSTOP;
+    sigdesc.sa_flags = SA_SIGINFO|SA_NOCLDSTOP|SA_RESTART;
     
     dprintf(0, "npshell: registering chld signal handler\n");
     ret = sigaction(SIGCHLD, &sigdesc, NULL);
@@ -111,7 +94,7 @@ int npshell(int argc, char const *argv[])
         exit(-1);
     }
     
-    ret = setenv("PATH", "bin:.", 1);
+    ret = np_setenv("PATH", "bin:.", 1);
     if (ret) {
         perror("setenv");
         return errno;
@@ -120,12 +103,7 @@ int npshell(int argc, char const *argv[])
     Cmd_Head->stat = STAT_READY;
     Cmd_Head->next = NULL;
     
-    sigemptyset(&blk_chld);
-    sigaddset(&blk_chld, SIGCHLD);
-
     while (1) {
-        sigprocmask(SIG_BLOCK, &blk_chld, &orig);
-        printf("%% ");
 retry:
         errno = 0;
         ret = getline(&cmdbuf, &bufsize, stdin);
@@ -138,7 +116,6 @@ retry:
             free(cmdbuf);
             return errno;
         }
-        sigprocmask(SIG_SETMASK, &orig, NULL);
         
         dprintf(0, "===>getline=%d:  %s\n", ret, cmdbuf);
         
@@ -163,6 +140,7 @@ retry:
         // variables in 'exec.c'. Thus, it is possible to leave processes remain
         // STAT_EXEC if it does not need tty output
         Cmd_Head = syncCmd(Cmd_Head);
+        printf("%% ");
     }
 
     return 0;

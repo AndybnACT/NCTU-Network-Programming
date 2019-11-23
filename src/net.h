@@ -18,14 +18,21 @@ int npclient_yell(int argc, char *argv[]);
 
 
 #if defined(CONFIG_SERVER3) || defined(CONFIG_SERVER2)
+#ifdef CONFIG_SERVER3
+#define SHM_NAME "npshell_shared"
+#endif /* CONFIG_SERVER3 */
 #ifdef CONFIG_SERVER2
 #include "command.h"
-#endif
-#define MAXUSR 30
+/* np_single_proc.c */
+int np_switch_to(int id);
+#endif /* CONFIG_SERVER2 */
+#define MAXUSR 32
 
 #include <stdio.h>
 int npserver_init(void);
+int npserver_cleanup(void);
 int npclient_init(int fd, char *inimsg);
+int np_upipe_sysmsg(int id, int rw, char *cmd);
 
 #ifdef CONFIG_SERVER3
 int npserver_reap_client(pid_t pid);
@@ -83,6 +90,13 @@ struct user_pipe{
 }
 #endif /* CONFIG_SERVER2 */
 
+struct env_struct {
+    int lim;
+    int top;
+    char **key;
+    char **value;
+};
+
 #define USTAT_FREE 0x0
 #define USTAT_USED 0x1
 #define USTAT_DEAD 0x2
@@ -95,6 +109,9 @@ struct usr_struct {
     char netname[30];
     struct user_pipe upipe;
     struct message msg;
+    int upipe_in[MAXUSR];
+    int upipe_out[MAXUSR];
+    struct env_struct curenv;
 #ifdef CONFIG_SERVER2
     int exit;
     int connfd;
@@ -102,8 +119,6 @@ struct usr_struct {
     FILE *out;
     FILE *err;
     struct Command cmdhead;
-    int upipe_in[MAXUSR];
-    int upipe_out[MAXUSR];
 #endif /* CONFIG_SERVER2 */
 };
 
@@ -124,15 +139,19 @@ struct mt_unsafe_mem_obj{
 #define ROUNDUP(x) (((x) + 0xFFF) & (~0xFFF))
 
 #define USRNOTFOUND(id) "*** Error: user #%d does not exist yet. ***\n", (id)
-static inline int usrchk(int dstid)
+static inline int usrchk(int dstid, char *buf, int size)
 {
     do {                                            
         if ((dstid) < MAXUSR && (dstid) > 0){       
             if (UsrLst[dstid].stat == USTAT_USED) { 
                 break;                              
             }                                       
-        }                                           
-        fprintf(stdout, USRNOTFOUND(dstid));        
+        }
+        if (buf) {
+            snprintf(buf, size, USRNOTFOUND(dstid));
+        } else {
+            fprintf(stderr, USRNOTFOUND(dstid));
+        }
         return -1;                                  
     } while(0);
     return 0;

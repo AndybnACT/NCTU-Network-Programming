@@ -16,6 +16,7 @@ int npclient_yell(int argc, char *argv[]) {return -1;}
 #include "command.h"
 #include "msg.h"
 #include "upipe.h"
+#include "env.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -49,7 +50,7 @@ int npserver_init()
     
 #ifdef CONFIG_SERVER3
     int rc;
-    fd = shm_open("npshell_shared", O_RDWR|O_CREAT|O_TRUNC, 0666);
+    fd = shm_open(SHM_NAME, O_RDWR|O_CREAT|O_TRUNC, 0666);
     if (fd == -1) {
         perror("shm_open");
         exit(-1);
@@ -98,7 +99,22 @@ int npserver_init()
     return fd;
 }
 
-#define LEAVE_MSG(n) "*** User ’%s’ left. ***\n", (n)
+int npserver_cleanup()
+{
+#ifdef CONFIG_SERVER3
+    int rc;
+    rc = shm_unlink(SHM_NAME);
+    if (rc == -1) {
+        perror("shm_unlink");
+    }
+    // remove all user pipe
+    
+#endif /* CONFIG_SERVER3 */
+    return 0;
+}
+
+
+#define LEAVE_MSG(n) "*** User '%s' left. ***\n", (n)
 
 #ifdef CONFIG_SERVER3
 int npserver_reap_client(pid_t pid)
@@ -114,6 +130,7 @@ int npserver_reap_client(pid_t pid)
             msg->dst_id = -1;
             msg->type = MSG_TYPE_SYS;
             msg_send(msg, 1);
+            upipe_release_all(killid);
             
             RESET_USR(&UsrLst[killid]);
             return 0;
@@ -137,6 +154,7 @@ int npserver_reap_client(int id)
     msg->dst_id = -1;
     msg->type = MSG_TYPE_SYS;
     msg_send(msg, 1);
+    upipe_release_all(id);
     
     RESET_USR(&UsrLst[id]);
     return 0;
@@ -164,10 +182,9 @@ int client_initialize_self()
 
 #define SEPERATOR "****************************************\n"
 #define BANNERMSG "** Welcome to the information server. **\n"
-#define PERUSRMSG(ipbuf) "*** User ’(no name)’ entered from %s. ***\n", (ipbuf)
+#define PERUSRMSG(ipbuf) "*** User '(no name)' entered from %s. ***\n", (ipbuf)
 
 extern int stream_forward(const int fd, FILE **stream_ptr, char *mode);
-extern int np_switch_to(int id);
 int npclient_init(int fd, char *ipmsg)
 {
     int id;
@@ -190,6 +207,7 @@ int npclient_init(int fd, char *ipmsg)
     
     msg_init();
     upipe_init();
+    env_init();
     
     // welcome msg
     Self.msg.dst_id = -1;
@@ -219,6 +237,7 @@ int npclient_who(int argc, char *argv[])
 int npclient_name(int argc, char *argv[])
 {
     int len;
+    struct message *msg;
     if (argc != 2) {
         fprintf(stdout, "usage: name <your name>\n");
         return -1;
@@ -231,13 +250,26 @@ int npclient_name(int argc, char *argv[])
     }
     
     // check if name exists
+    for (size_t i = 1; i < MAXUSR; i++) {
+        if (i == selfid || UsrLst[i].stat != USTAT_USED)
+            continue;
+        if (strcmp(UsrLst[i].name, argv[1]) == 0) {
+            fprintf(stdout, "*** User '%s' already exists. ***\n", argv[1]);
+            return -1;
+        }
+    }
     
     // set boardcast msg
+    msg = &Self.msg;
+    msg->dst_id = -1;
+    snprintf((char*)msg->message, 1024, "*** User from %s is named '%s'. ***\n",
+                                         Self.netname, argv[1]);
     
     // set name
     memcpy(Self.name, argv[1], len+1);
     
     // send msg
+    msg_send(msg, 1);
     
     return 0;
 }
@@ -260,12 +292,7 @@ int npclient_tell(int argc, char *argv[])
     len = strlen(argv[2]);
     recv_id = atoi(argv[1]);
     
-    if (recv_id < 1 || recv_id > MAXUSR) {
-        printf("invalid receiver id for input: %s\n", argv[1]);
-        return -1;
-    }
-    if (UsrLst[recv_id].stat != USTAT_USED) {
-        printf(USRNOTFOUND(recv_id));
+    if (usrchk(recv_id, NULL, 0) == -1) {
         return -1;
     }
     
@@ -303,6 +330,47 @@ int npclient_yell(int argc, char *argv[])
     memcpy((char*)msg->message, argv[1], len+1);
     msg->dst_id = -1;
     msg->type = MSG_TYPE_YELL;
+    msg_send(msg, 1);
+    
+    return 0;
+}
+
+#define SENDMSG "*** %s (#%d) just piped '%s' to %s (#%d) ***\n"
+#define RECVMSG "*** %s (#%d) just received from %s (#%d) by '%s' ***\n"
+int np_upipe_sysmsg(int id, int rw, char *cmd){
+    int sid;
+    int rid;
+    struct message *msg = &Self.msg;
+    char buf[1050];
+    
+    if (id == -1)
+        return -1;
+        
+    // we dont need to check id here since `percmd_upipe` has checked for us
+    
+    for (size_t i = 0; i < strlen(cmd); i++) {
+        if (cmd[i] == '\n' || cmd[i] == '\r') {
+            cmd[i] = '\0';
+            break;
+        }
+    }
+    
+    if (rw == 1) {
+        sid = selfid;
+        rid = id;
+        snprintf(buf, 1024, SENDMSG, UsrLst[sid].name, sid, cmd, 
+                                     UsrLst[rid].name, rid);
+    }else{
+        sid = id;
+        rid = selfid;
+        snprintf(buf, 1024, RECVMSG, UsrLst[rid].name, rid,
+                                     UsrLst[sid].name, sid, cmd);
+    }
+    
+    msg->dst_id = -1;
+    msg->type = MSG_TYPE_SYS;
+    memcpy((char*) msg->message, buf, strlen(buf)+1);
+    
     msg_send(msg, 1);
     
     return 0;

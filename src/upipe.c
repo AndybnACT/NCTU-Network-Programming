@@ -4,6 +4,7 @@
 #endif
 #define _GNU_SOURCE 
 
+#include "upipe.h"
 #include "net.h"
 #include "command.h"
 #include "debug.h"
@@ -15,7 +16,6 @@
 #include <errno.h>
 
 #define BUFSIZE 256
-#define PIPE_EXIST "*** Error: the pipe #%d->#%d already exists. ***\n"
 
 #ifdef CONFIG_SERVER2
 
@@ -33,10 +33,10 @@ int upipe_set_pipes(int dstid)
     int fds[2];
     
     if (UsrLst[dstid].upipe_in[selfid] != -1) {
-        fprintf(stdout, PIPE_EXIST, selfid, dstid);
-        dprintf(2, "UsrLst[%d].upipe_in[%d] = %d\n", 
+        // fprintf(stdout, PIPE_EXIST, selfid, dstid);
+        dprintf(2, "Pipe exist! UsrLst[%d].upipe_in[%d] = %d\n", 
                     dstid, selfid, UsrLst[dstid].upipe_in[selfid]);
-        return -1;
+        return ERR_PIPE_EXIST;
     }
     
 retry:
@@ -65,10 +65,6 @@ retry:
 /* fifo, open */
 #include <sys/types.h>
 
-
-int upipe_in[MAXUSR] = {-1, };
-int upipe_out[MAXUSR] = {-1, };
-
 #define FIFO_PREFIX "./user_pipe/"
 
 void upipe_hdlr(int sig, siginfo_t *info, void *ucontext)
@@ -88,7 +84,7 @@ void upipe_hdlr(int sig, siginfo_t *info, void *ucontext)
             goto success;
         }
     }
-    dprintf(0, "bug! cannot find message by pid=%d in UsrLst\n", srcpid);
+    dprintf(0, "upipe: bug! cannot find message by pid=%d in UsrLst\n", srcpid);
     exit(-1);
     
 success:
@@ -100,7 +96,7 @@ success:
     }
     read(fd, readbuf, 4);
     dprintf(2, "===> %s\n", readbuf);
-    upipe_in[sender_id] = fd;
+    Self.upipe_in[sender_id] = fd;
     return;
 }
 
@@ -110,8 +106,8 @@ int upipe_init()
     struct sigaction sigdesc;
     
     dprintf(1, "initializing upipes\n")
-    memset(upipe_in, -1, MAXUSR*sizeof(int));
-    memset(upipe_out, -1, MAXUSR*sizeof(int));
+    memset(Self.upipe_in, -1, MAXUSR*sizeof(int));
+    memset(Self.upipe_out, -1, MAXUSR*sizeof(int));
     
     memset(&sigdesc, 0, sizeof(struct sigaction));
 
@@ -137,7 +133,7 @@ int initialize_fifo(int dstid, char *path)
     rc = access(path, F_OK);
     if (rc == 0) {
         dprintf(2, "fifo already exists, aborting\n");
-        fprintf(stdout, PIPE_EXIST, selfid, dstid);
+        dprintf(2, PIPE_EXIST, selfid, dstid);
         return -1;
     }
     
@@ -177,53 +173,43 @@ int force_upipe(int dstid, char *pth, int force)
 int upipe_set_writeend(int dstid, int force)
 {
     int fd;
-    int rc;
 #ifdef CONFIG_SERVER3
+    int rc;
     char path[BUFSIZE];
 #endif /* CONFIG_SERVER3 */
-    
-    rc = usrchk(dstid);
-    if (rc) {
-        return -1;
-    }
 
 #ifdef CONFIG_SERVER2
     fd = upipe_set_pipes(dstid);
 #endif /* CONFIG_SERVER2 */
 
 #ifdef CONFIG_SERVER3
-    initialize_fifo(dstid, path);
+    rc = initialize_fifo(dstid, path);
+    if (rc == -1) {
+        return ERR_PIPE_EXIST;
+    }
+    
     force_upipe(dstid, path, force);
     
     fd = open(path, O_WRONLY);
     if (fd == -1) {
         perror("open");
-        return -1;
+        exit(-1);
     }
     write(fd, "ok!", 4); 
         
-    upipe_out[dstid] = fd;
+    Self.upipe_out[dstid] = fd;
 #endif /* CONFIG_SERVER3 */
 
     return fd;
 }
 
-#define PIPENOTFOUND "*** Error: the pipe #%d->#%d does not exist yet. ***\n"
 int upipe_get_readend(int srcid)
 {
-    int rc;
-    rc = usrchk(srcid);
-    if (rc) {
-        return -1;
-    }
-    
-#ifdef CONFIG_SERVER2
     int *upipe_in = Self.upipe_in;
-#endif /* CONFIG_SERVER2 */    
     
     if (upipe_in[srcid] == -1) {
-        fprintf(stdout, PIPENOTFOUND, srcid, selfid);
-        return -1;
+        dprintf(0, PIPENOTFOUND, srcid, selfid);
+        return ERR_PIPENOTFOUND;
     }
     
     return upipe_in[srcid];
@@ -231,19 +217,11 @@ int upipe_get_readend(int srcid)
 
 int upipe_get_writeend(int dstid)
 {
-    int rc;
-    rc = usrchk(dstid);
-    if (rc) {
-        return -1;
-    }
-    
-#ifdef CONFIG_SERVER2
     int *upipe_out = Self.upipe_out;
-#endif /* CONFIG_SERVER2 */    
     
     if (upipe_out[dstid] == -1) {
-        fprintf(stdout, PIPENOTFOUND, dstid, selfid);
-        return -1;
+        dprintf(0, PIPENOTFOUND, dstid, selfid);
+        return ERR_PIPENOTFOUND;
     }
     
     return upipe_out[dstid];
@@ -256,9 +234,7 @@ int upipe_release(int srcid)
     if (srcid == -1)
         return 0;
     
-#ifdef CONFIG_SERVER2
     int *upipe_in = Self.upipe_in;
-#endif /* CONFIG_SERVER2 */
 
     fd = upipe_in[srcid];
     if (fd == -1) {
@@ -272,6 +248,29 @@ int upipe_release(int srcid)
     snprintf(path, BUFSIZE, "%s/#%d_#%d", FIFO_PREFIX, srcid, selfid);
     unlink(path);
 #endif /* CONFIG_SERVER3 */
+    return 0;
+}
+
+int upipe_release_all(int dstid)
+{
+    int fd;
+    int *upipe_in = UsrLst[dstid].upipe_in;
+    
+    for (int srcid = 1; srcid < MAXUSR; srcid++) {
+        fd = upipe_in[srcid];
+        if (fd != -1){
+            // must not to close anything sice this function is on performed by npserver
+            // close(fd);
+            upipe_in[srcid] = -1;
+            
+#ifdef CONFIG_SERVER3
+            char path[BUFSIZE];
+            snprintf(path, BUFSIZE, "%s/#%d_#%d", FIFO_PREFIX, srcid, dstid);
+            unlink(path);
+#endif /* CONFIG_SERVER3 */
+        }
+    }
+    
     return 0;
 }
 #endif /* CONFIG_SERVER2 || CONFIG_SERVER3 */

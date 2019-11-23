@@ -58,7 +58,7 @@ int register_chld(void)
     int ret;
     struct sigaction sigdesc;
     sigdesc.sa_sigaction = sigchld_hdlr;
-    sigdesc.sa_flags = SA_SIGINFO|SA_NOCLDSTOP;
+    sigdesc.sa_flags = SA_SIGINFO|SA_NOCLDSTOP|SA_RESTART;
     dprintf(1, "registering signal handler\n");
     
     ret = sigaction(SIGCHLD, &sigdesc, NULL);
@@ -69,6 +69,30 @@ int register_chld(void)
     return 0;
 }
 #endif /* CONFIG_SERVER3 */
+
+#if defined(CONFIG_SERVER2) || defined(CONFIG_SERVER3)
+static void sigint_hdlr(int sig, siginfo_t *info, void *ucontext)
+{
+    npserver_cleanup();
+    exit(0);
+}
+
+int register_sigint(void)
+{
+    int ret;
+    struct sigaction sigdesc;
+    sigdesc.sa_sigaction = sigint_hdlr;
+    sigdesc.sa_flags = SA_SIGINFO;
+    dprintf(1, "registering SIGINT signal handler\n");
+    
+    ret = sigaction(SIGINT, &sigdesc, NULL);
+    if (ret) {
+        perror("sigaction");
+        exit(-1);
+    }
+    return 0;
+}
+#endif /* CONFIG_SERVER2 || CONFIG_SERVER3 */
 
 int stream_forward(const int fd, FILE **stream_ptr, char *mode)
 {
@@ -103,7 +127,7 @@ int stream_forward(const int fd, FILE **stream_ptr, char *mode)
 }
 
 int main(int argc, char const *argv[]) {
-    pid_t child;
+    pid_t child = 0;
 #ifdef CONFIG_SERVER1
     int chld_stat;
 #endif
@@ -152,6 +176,10 @@ int main(int argc, char const *argv[]) {
         exit(-1);
     }
     
+#if defined(CONFIG_SERVER2) || defined(CONFIG_SERVER3)
+    register_sigint();
+#endif /* CONFIG_SERVER2 || CONFIG_SERVER3 */
+    
 #ifdef CONFIG_SERVER3
     shmfd = npserver_init();
     register_chld();
@@ -170,8 +198,8 @@ int main(int argc, char const *argv[]) {
         }
         
         dprintf(0, "server waiting on port %d\n", (short) portl);
-        len = sizeof(struct sockaddr_in);
 retry_accept:
+        len = sizeof(struct sockaddr_in);
         connfd = accept(sockfd, (struct sockaddr*) &clientaddr, &len);
         if (connfd == -1) {
             perror("accept");
@@ -179,6 +207,24 @@ retry_accept:
                 goto retry_accept; 
             exit(-1);
         }
+
+#ifdef CONFIG_SERVER1
+        write(connfd, "% ", 2);
+        if (child) {
+            dprintf(0, "%d fork'ed\n", child);
+            do { // blocking wait
+                rc = waitpid(child, &chld_stat, 0);
+                if (child != rc) {
+                    perror("waitpid");
+                    exit(-1);
+                }
+                dprintf(1, "waitpid-stat = %d\n", child);
+            } while(!WIFEXITED(chld_stat));
+            
+            dprintf(0, "npshell exit status = %d\n", WEXITSTATUS(chld_stat));
+        }
+#endif /* CONFIG_SERVER1 */
+
 retry_fork:
         child = fork();
         if (child == -1) {
@@ -189,7 +235,7 @@ retry_fork:
             snprintf(ipmsgbuf, 150, "%s:%hu", ipbuf, ntohs(clientaddr.sin_port));
             dprintf(0, "client coming from %s\n", ipmsgbuf);
             
-            dprintf(0, "forwarding std streams to the incoming port\n");
+            dprintf(0, "forwarding std streams to the incoming port, connfd=%d\n", connfd);
             stream_forward(connfd, &stdin,  "r");
             stream_forward(connfd, &stdout, "w");
             stream_forward(connfd, &stderr, "w");
@@ -198,6 +244,7 @@ retry_fork:
             
 #ifdef CONFIG_SERVER3
             npclient_init(shmfd, ipmsgbuf);
+            fprintf(stdout, "%% ");
 #endif /* CONFIG_SERVER3 */
 
             npshell(argc, argv);
@@ -205,20 +252,6 @@ retry_fork:
         }
         
         close(connfd);
-        
-#ifdef CONFIG_SERVER1
-        dprintf(0, "%d fork'ed\n", child);
-        do {
-            rc = waitpid(child, &chld_stat, 0);
-            if (child != rc) {
-                perror("waitpid");
-                exit(-1);
-            }
-            dprintf(1, "waitpid-stat = %d\n", child);
-        } while(!WIFEXITED(chld_stat));
-        
-        dprintf(0, "npshell exit status = %d\n", WEXITSTATUS(chld_stat));
-#endif /* CONFIG_SERVER1 */
     }
 
     return 0;
