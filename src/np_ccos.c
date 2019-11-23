@@ -6,6 +6,9 @@
 #include "command.h"
 #include "debug.h"
 #include "net.h" /* MAXUSR macro */
+#ifdef CONFIG_SERVER1
+#include "env.h" 
+#endif /* CONFIG_SERVER1 */
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/socket.h> 
@@ -247,6 +250,10 @@ retry_fork:
             npclient_init(shmfd, ipmsgbuf);
             fprintf(stdout, "%% ");
 #endif /* CONFIG_SERVER3 */
+
+#ifdef CONFIG_SERVER1
+            env_init();
+#endif /* CONFIG_SERVER1 */
 
             npshell(argc, argv);
             exit(-1);

@@ -8,9 +8,7 @@ struct builtin_cmd {
     int (*func)(int argc, char **argv);
 };
 
-#if defined(CONFIG_SERVER2) || defined(CONFIG_SERVER3)
 int env_init();
-#endif /* CONFIG_SERVER2 || CONFIG_SERVER3 */
 
 int np_setenv(char *name, char *value, int _dummy);
 char* np_getenv(char *name);

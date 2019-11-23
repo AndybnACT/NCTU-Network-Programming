@@ -23,7 +23,12 @@ struct builtin_cmd Builtin_Cmds[] = {
 };
 const int NCMD = (sizeof(Builtin_Cmds)/sizeof(struct builtin_cmd));
 
-#if defined(CONFIG_SERVER2) || defined(CONFIG_SERVER3)
+#ifdef CONFIG_SERVER1
+struct dummy_self {
+    struct env_struct curenv;
+} Self;
+#endif /* CONFIG_SERVER1 */
+
 int get_envid(struct env_struct *envp, char *name)
 {
     for (size_t i = 0; i < envp->top; i++) {
@@ -90,15 +95,6 @@ int env_init()
     np_setenv("PATH", "bin:.", 1);
     return 0;
 }
-#endif /* CONFIG_SERVER2 || CONFIG_SERVER3 */
-#ifdef CONFIG_SERVER1
-int np_setenv(char *name, char *value, int _dummy){
-    return setenv(name, value, _dummy);
-}
-char* np_getenv(char *name){
-    return getenv(name);
-}
-#endif
 
 static inline char * _copy_path(void)
 {

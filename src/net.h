@@ -10,6 +10,13 @@ int npclient_name(int argc, char *argv[]);
 int npclient_tell(int argc, char *argv[]);
 int npclient_yell(int argc, char *argv[]);
 
+// should be placed at env.h
+struct env_struct {
+    int lim;
+    int top;
+    char **key;
+    char **value;
+};
 
 #ifdef CONFIG_SERVER1
 #define MAXUSR 1
@@ -89,13 +96,6 @@ struct user_pipe{
     RESETCMD(&((x)->cmdhead));    \
 }
 #endif /* CONFIG_SERVER2 */
-
-struct env_struct {
-    int lim;
-    int top;
-    char **key;
-    char **value;
-};
 
 #define USTAT_FREE 0x0
 #define USTAT_USED 0x1
