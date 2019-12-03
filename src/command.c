@@ -7,8 +7,9 @@
 
 #define DELIMITER "\n\t\r "
 #define LINEBREAK "\n\r"
+enum toktype{ TYPE_NONE, TYPE_REG, TYPE_MSG};
 struct token {
-    int type;
+    enum toktype type;
     int len;
     char *name;
     struct token *next;
@@ -31,10 +32,12 @@ int gettoken(char *buf, struct token *token)
             
         token->name = buf;
         token->len = 0;
+        token->type = TYPE_REG;
         tokcnt++;
         
         if (msgcmd) {
             msg_remaintok -= 1;
+            token->type = TYPE_MSG;
             // walk through entire str for last item in tell/yell cmds
             if (msg_remaintok == 0) {
                 while (!strchr(LINEBREAK, *buf) && *buf) {
@@ -68,6 +71,7 @@ int gettoken(char *buf, struct token *token)
         token = token->next;
         token->name = NULL;
         token->len  = 0;
+        token->type = TYPE_NONE;
         token->next = NULL;
     }
     
@@ -265,7 +269,8 @@ struct Command * parse2Cmd(char *cmdbuf, size_t bufsize, struct Command *head)
     
     dprintf(1, "token list[%d]:\n", ret);
     for (struct token *tokenp = &tokenlist; tokenp->next; tokenp = tokenp->next) {
-        dprintf(1, "\tname = %s, len = %d\n", tokenp->name, tokenp->len);    
+        dprintf(1, "\tname = %s, len = %d, type=%d\n", tokenp->name, tokenp->len,
+                                                        tokenp->type);    
     }
     
     while (1) {
@@ -279,7 +284,7 @@ struct Command * parse2Cmd(char *cmdbuf, size_t bufsize, struct Command *head)
         head->fullcmd = cmd_cpy;
         
         // get argc
-        while (!strchr(CMDSEP, *tmptokp->name)) {
+        while (!strchr(CMDSEP, *tmptokp->name) || tmptokp->type == TYPE_MSG) {
             argc++;
             tmptokp = tmptokp->next;
             if (!tmptokp->name) // end of command
