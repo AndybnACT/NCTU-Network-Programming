@@ -140,7 +140,7 @@ private:
         "HTTP/1.1 200 OK\r\n",
         "HTTP/1.1 501 NOT_IMPLEMENTED\r\n"
     };
-    std::string default_header_tail = "Content-Type: text/html\r\nConnection: Closed\r\n\r\n";
+    std::string default_header_tail = "Content-Type: text/html\r\nConnection: Closed\r\n";
     
     int sockfd;
     http_parser &req_;
