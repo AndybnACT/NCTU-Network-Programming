@@ -291,6 +291,7 @@ public:
         http_stat = NOT_IMPLEMENTED;
 bad:
         http_send_header();
+        boost::asio::write(socket_, boost::asio::buffer("\r\n"));
         return -1;
     }
 
