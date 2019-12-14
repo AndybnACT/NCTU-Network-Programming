@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+boost::asio::io_context io_context;
+
 #define DEBUG
 #ifdef DEBUG
 #define DBGOUT(msgexpr){                        \
@@ -221,23 +223,136 @@ public:
     };
 };
 
-// // // Friday afternoon + night
-// class npshell_conn {
-// private:
-//     /* data */
-// 
-// public:
-//     char *host;
-//     char *port;
-//     char *testfile;
-//     npshell_conn ();
-//     virtual ~npshell_conn ();
-// };
-// /////////////////////////////
+// Friday afternoon + night
+using boost::asio::ip::tcp;
+#define NPSHELL_ERR(boostec){                               \
+    std::string errstr = (boostec).message() + ": " +       \
+                         std::to_string((boostec).value()); \
+    DBGOUT(errstr);                                         \
+    console_.output_command(sid, errstr);                   \
+}
+#define RBUFSIZE 4096
+#define PROMPT "%"
+
+class npshell_conn {
+private:
+    boost::asio::io_context &io_context_;
+    tcp::resolver resolver;
+    tcp::socket socket;
+    tcp::resolver::results_type endpoint;
+    std::ifstream cmdstream;
+    console &console_;
+    struct host &host;
+    int sid;
+    
+    char rbuf[RBUFSIZE];
+    
+    int npshell_outputl(char *buf, size_t len)
+    {
+        int cnt = 0;
+        std::string outstr;
+        for (size_t i = 0; i < len; i++) {
+            if (buf[i] == '\r' || buf[i] == '\n') {
+                outstr += "&NewLine;";
+                cnt++;
+            }else if (buf[i] == '\'') {
+                outstr += "\\'";
+            }else {
+                outstr += buf[i];
+            }
+        }
+        console_.output_shell(sid, outstr);
+        return cnt;
+    }
+    
+    void npshell_recvRes()
+    {
+        DBGOUT("read");
+        socket.async_read_some(boost::asio::buffer(rbuf, RBUFSIZE-1),
+            [this](boost::system::error_code ec, std::size_t len)
+            {
+                if (!ec) {
+                    DBGOUT("read: " << rbuf);
+                    npshell_outputl(rbuf, len);
+                    
+                    if (strstr(rbuf, PROMPT)) {
+                        memset(rbuf, 0, RBUFSIZE);
+                        npshell_sendCmd();
+                    }else {
+                        memset(rbuf, 0, RBUFSIZE);
+                        npshell_recvRes();
+                    }
+                }else {
+                    NPSHELL_ERR(ec);
+                }
+            });
+    }  
+    
+    void npshell_sendCmd()
+    {
+        std::string line;
+        if (std::getline(cmdstream, line)) {
+            if ((int)(line.size()) - 1 >= 0) {
+                if (line[line.size() - 1] == '\r') {
+                    line.erase(line.size() - 1);
+                }
+            }
+            DBGOUT("write: " << line);
+            console_.output_command(sid, line);
+            line = line + "\n";
+            socket.async_write_some(boost::asio::buffer(line), 
+                [this](boost::system::error_code ec, std::size_t len)
+                {
+                    if (!ec) {
+                        npshell_recvRes();
+                    }else {
+                        NPSHELL_ERR(ec);
+                    }
+                });
+        }
+    }
+    
+    int npshell_connect(tcp::resolver::results_type &endpoint)
+    {
+        // auto self(shared_from_this());
+        boost::asio::async_connect(socket, endpoint, 
+            [this](boost::system::error_code ec, tcp::endpoint ep)
+            {
+                if (!ec) {
+                    DBGOUT("connected!!!");
+                    console_.output_command(sid, "connected!");
+                    npshell_recvRes();
+                }else {
+                    NPSHELL_ERR(ec);
+                }
+            });
+        return -1;
+    }
+    
+public:
+    npshell_conn (struct host &h, console &console, int id)
+    :   io_context_(io_context),
+        resolver(io_context),
+        socket(io_context),
+        console_(console),
+        host(h),
+        sid(id)
+    {
+        endpoint = resolver.resolve(host.host, host.port);
+        DBGOUT(sid);
+        cmdstream = std::ifstream("./test_case/" + h.file, std::ifstream::binary);
+        
+        npshell_connect(endpoint);
+        return;
+    };
+};
+
+
 
 int main(int argc, char const *argv[]) {
     std::cout << "\r\n";
     char *query_string = getenv("QUERY_STRING");
+    npshell_conn* npshell[MAXHST];
     
     DBGOUT("[" <<getpid() << "]");
     
@@ -251,6 +366,17 @@ int main(int argc, char const *argv[]) {
     parse.check();
     
     console console(parse.hst_list, "console-head.html");
+    
+    size_t nr = console.nractive;
+    for (size_t i = 0; i < nr ; i++) {
+        npshell[i] = new npshell_conn(*console.session[i].hst, console, i);
+    }
+    
+    io_context.run();
+    
+    for (size_t i = 0; i < nr; i++) {
+        delete npshell[i];
+    }
     
     return 0;
 }
