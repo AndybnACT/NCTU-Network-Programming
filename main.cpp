@@ -18,6 +18,17 @@ extern char **environ;
 
 using boost::asio::ip::tcp;
 
+/* !!!!!!!!!!!!!!!!!!!!! NOTE OF BAD IMPLEMENTATION !!!!!!!!!!!!!!!!!!!!! *
+ * Since TAs require us to compile only one (main.cpp) file on Windows,   *
+ * we include the implementation file "console.cpp" here to prevent       *
+ * increasing of unnecessary code.                                        *
+ * !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
+#define WINDOWS                                                        /* */
+#include "console.cpp"                                                 /* */
+#undef cout                                                            /* */
+/* !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
+
+
 #define ASSERT(expr, msg) {         \
     if (!(expr)) {                  \
         std::cerr << msg << '\n';   \
@@ -182,7 +193,7 @@ private:
     }
     
     int http_send_header(void){
-        int len;
+        size_t len;
         std::string default_header = basic_headr[http_stat] + default_header_tail;
         std::cout << "ready to send header:" << '\n';
         std::cout << default_header << '\n';
@@ -224,7 +235,8 @@ private:
     }
     
     int http_console(){
-        
+        __sock = &(socket_);
+        http_console_start(req_.query_string);
         return 0;
     }
     

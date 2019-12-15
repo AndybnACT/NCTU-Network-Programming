@@ -5,16 +5,50 @@
 #include <unistd.h>
 #include "np_hardcoded_console-head.hpp"
 
-boost::asio::io_context io_context;
-
 #define DEBUG
+
+/* !!!!!!!!!!!!!!!!!!!!! NOTE OF BAD IMPLEMENTATION !!!!!!!!!!!!!!!!!!!!! *
+ * Since TAs require us to compile only one file (main.cpp) on Windows,   *
+ * this file will be included by "main.cpp" to prevent increasing of      *
+ * unnecessary code.                                                      *
+ * NOTE: implementation here is not thread safe!!                         *
+ * !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
+#ifdef WINDOWS
+boost::asio::streambuf global_streambuf;
+tcp::socket *__sock;
+std::ostream __glob_cout(&global_streambuf);
+#define cout __glob_cout
+#define WIN_CONSOLE_RENDER_PAGE() {                         \
+    size_t len;                                             \
+    len = boost::asio::write((*__sock), global_streambuf);  \
+    global_streambuf.consume(len);                          \
+}
+
+
 #ifdef DEBUG
-#define DBGOUT(msgexpr){                        \
-    std::cout << "<!--" <<  msgexpr << "-->\n";   \
+#define DBGOUT(msgexpr){                               \
+    std::cerr << "console.cgi: " << msgexpr << "\n";   \
 }
 #else
 #define DBGOUT(msgexpr) {}
 #endif /* DEBUG */
+
+
+#else
+
+#define WIN_CONSOLE_RENDER_PAGE() {}
+using namespace std;
+#ifdef DEBUG
+#define DBGOUT(msgexpr){                     \
+    cout << "<!--" <<  msgexpr << "-->\n";   \
+}
+#else
+#define DBGOUT(msgexpr) {}
+#endif /* DEBUG */
+
+#endif /* WINDOWS */
+/* !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
+
 
 struct host {
     int active;
@@ -78,14 +112,14 @@ public:
     int start() {
         enum state stat = ARG;
         int strst = 0;
-        size_t len = strlen(qstr);
-        for (size_t i = 0; i < len+1; i++) {
+        int len = strlen(qstr);
+        for (int i = 0; i < len+1; i++) {
             switch (stat) {
                 case ARG:
                     if (qstr[i] == '=') {
                         qstr[i] = '\0';
                         if (strst == i) {
-                            std::cout << "error, empty arg" << '\n';
+                            cout << "error, empty arg" << '\n';
                             exit(-1);
                         }
                         parse2host_arg(qstr+strst);
@@ -140,13 +174,12 @@ private:
     struct host *hst_list;
     
     int console_set_tbl(){
-        using namespace std;
         cout << "<body>" << '\n';
         cout << "<table class=\"table table-dark table-bordered\">" << '\n';
         
         cout << "<thead>" << '\n';
         cout << "<tr>" << '\n';
-        for (size_t i = 0; i < nractive; i++) {
+        for (int i = 0; i < nractive; i++) {
             cout << "<th scope=\"col\">";
             cout << session[i].hst->host;
             cout << ":" << session[i].hst->_port;
@@ -157,7 +190,7 @@ private:
         
         cout << "<tbody>" << '\n';
         cout << "<tr>" << '\n';
-        for (size_t i = 0; i < nractive; i++) {
+        for (int i = 0; i < nractive; i++) {
             cout << "<td><pre id=\"s";
             cout << i << "\"";
             cout << " class=\"mb-0\"></pre></td>\n";
@@ -187,22 +220,22 @@ public:
     void output_shell(int sid, std::string str) {
         if (console_check_sid(sid))
             return;
-        std::cout << "<script>document.getElementById('s";
-        std::cout << sid << "').innerHTML += '";
-        std::cout << str << "';</script>\n" << std::flush;;
+        cout << "<script>document.getElementById('s";
+        cout << sid << "').innerHTML += '";
+        cout << str << "';</script>\n" << std::flush;;
+        WIN_CONSOLE_RENDER_PAGE();
     }
     
     void output_command(int sid, std::string str) {
         if (console_check_sid(sid))
             return;
-        std::cout << "<script>document.getElementById('s";
-        std::cout << sid << "').innerHTML += '<b>";
-        std::cout << str << "&NewLine;</b>';</script>\n" << std::flush;
+        cout << "<script>document.getElementById('s";
+        cout << sid << "').innerHTML += '<b>";
+        cout << str << "&NewLine;</b>';</script>\n" << std::flush;
+        WIN_CONSOLE_RENDER_PAGE();
     }
     
     console (struct host *hstp, const char* hardcoded_head){
-        using namespace std;
-        stringstream  buf;
         hst_list = hstp;
         nractive = 0;
         memset(session, 0, MAXHST*sizeof(struct session));
@@ -218,7 +251,8 @@ public:
         }
         
         console_set_tbl();
-        cout << "</html>";
+        cout << "</html>" << std::flush;
+        WIN_CONSOLE_RENDER_PAGE();
     };
 };
 
@@ -329,7 +363,7 @@ private:
     }
     
 public:
-    npshell_conn (struct host &h, console &console, int id)
+    npshell_conn (boost::asio::io_context &io_context, struct host &h, console &console, int id)
     :   io_context_(io_context),
         resolver(io_context),
         socket(io_context),
@@ -347,10 +381,15 @@ public:
 };
 
 
-
+#ifdef WINDOWS
+int http_console_start(char *query_string) {
+#else
 int main(int argc, char const *argv[]) {
-    std::cout << "\r\n";
     char *query_string = getenv("QUERY_STRING");
+#endif /* WINDOWS */
+    boost::asio::io_context io_context;
+
+    cout << "\r\n";
     npshell_conn* npshell[MAXHST];
     
     DBGOUT("[" <<getpid() << "]");
@@ -368,7 +407,7 @@ int main(int argc, char const *argv[]) {
     
     size_t nr = console.nractive;
     for (size_t i = 0; i < nr ; i++) {
-        npshell[i] = new npshell_conn(*console.session[i].hst, console, i);
+        npshell[i] = new npshell_conn(io_context, *console.session[i].hst, console, i);
     }
     
     io_context.run();
