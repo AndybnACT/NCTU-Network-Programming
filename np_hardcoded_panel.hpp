@@ -54,7 +54,7 @@ const char *PANEL = R""""(
             <td>
               <select name="f0" class="custom-select">
                 <option></option>
-                <option value="t1.txt">t1.txt</option><option value="t2.txt">t2.txt</option><option value="t3.txt">t3.txt</option><option value="t4.txt">t4.txt</option><option value="t5.txt">t5.txt</option>
+                <option value="t1.txt">t1.txt</option><option value="t2.txt">t2.txt</option><option value="t3.txt">t3.txt</option><option value="t4.txt">t4.txt</option><option value="t5.txt">t5.txt</option><option value="t6.txt">t6.txt</option><option value="t7.txt">t7.txt</option><option value="t8.txt">t8.txt</option><option value="t9.txt">t9.txt</option><option value="t10.txt">t10.txt</option>
               </select>
             </td>
           </tr>
@@ -76,7 +76,7 @@ const char *PANEL = R""""(
             <td>
               <select name="f1" class="custom-select">
                 <option></option>
-                <option value="t1.txt">t1.txt</option><option value="t2.txt">t2.txt</option><option value="t3.txt">t3.txt</option><option value="t4.txt">t4.txt</option><option value="t5.txt">t5.txt</option>
+                <option value="t1.txt">t1.txt</option><option value="t2.txt">t2.txt</option><option value="t3.txt">t3.txt</option><option value="t4.txt">t4.txt</option><option value="t5.txt">t5.txt</option><option value="t6.txt">t6.txt</option><option value="t7.txt">t7.txt</option><option value="t8.txt">t8.txt</option><option value="t9.txt">t9.txt</option><option value="t10.txt">t10.txt</option>
               </select>
             </td>
           </tr>
@@ -98,7 +98,7 @@ const char *PANEL = R""""(
             <td>
               <select name="f2" class="custom-select">
                 <option></option>
-                <option value="t1.txt">t1.txt</option><option value="t2.txt">t2.txt</option><option value="t3.txt">t3.txt</option><option value="t4.txt">t4.txt</option><option value="t5.txt">t5.txt</option>
+                <option value="t1.txt">t1.txt</option><option value="t2.txt">t2.txt</option><option value="t3.txt">t3.txt</option><option value="t4.txt">t4.txt</option><option value="t5.txt">t5.txt</option><option value="t6.txt">t6.txt</option><option value="t7.txt">t7.txt</option><option value="t8.txt">t8.txt</option><option value="t9.txt">t9.txt</option><option value="t10.txt">t10.txt</option>
               </select>
             </td>
           </tr>
@@ -120,7 +120,7 @@ const char *PANEL = R""""(
             <td>
               <select name="f3" class="custom-select">
                 <option></option>
-                <option value="t1.txt">t1.txt</option><option value="t2.txt">t2.txt</option><option value="t3.txt">t3.txt</option><option value="t4.txt">t4.txt</option><option value="t5.txt">t5.txt</option>
+                <option value="t1.txt">t1.txt</option><option value="t2.txt">t2.txt</option><option value="t3.txt">t3.txt</option><option value="t4.txt">t4.txt</option><option value="t5.txt">t5.txt</option><option value="t6.txt">t6.txt</option><option value="t7.txt">t7.txt</option><option value="t8.txt">t8.txt</option><option value="t9.txt">t9.txt</option><option value="t10.txt">t10.txt</option>
               </select>
             </td>
           </tr>
@@ -142,7 +142,7 @@ const char *PANEL = R""""(
             <td>
               <select name="f4" class="custom-select">
                 <option></option>
-                <option value="t1.txt">t1.txt</option><option value="t2.txt">t2.txt</option><option value="t3.txt">t3.txt</option><option value="t4.txt">t4.txt</option><option value="t5.txt">t5.txt</option>
+                <option value="t1.txt">t1.txt</option><option value="t2.txt">t2.txt</option><option value="t3.txt">t3.txt</option><option value="t4.txt">t4.txt</option><option value="t5.txt">t5.txt</option><option value="t6.txt">t6.txt</option><option value="t7.txt">t7.txt</option><option value="t8.txt">t8.txt</option><option value="t9.txt">t9.txt</option><option value="t10.txt">t10.txt</option>
               </select>
             </td>
           </tr>

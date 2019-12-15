@@ -207,7 +207,7 @@ private:
     
     int http_send_stream(std::ifstream &stream){
         auto buf = std::make_shared<boost::asio::streambuf>();
-        std::ostream(buf.get()) << stream.rdbuf();
+        std::ostream(buf.get()) << "\r\n" << stream.rdbuf();
         boost::asio::async_write(socket_, *buf, [buf](std::error_code ec, size_t len){});
         return 0;
     }
