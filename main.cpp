@@ -1,18 +1,19 @@
 #include <boost/asio.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
-#include <boost/asio/signal_set.hpp>
 #include <boost/asio/write.hpp>
 #include <fstream> 
 #include <cstdlib>
 #include <iostream>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <sys/wait.h>
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
 #include <stdlib.h>  
+
+#include "np_hardcoded_panel.hpp"
+
 extern char **environ;
 
 using boost::asio::ip::tcp;
@@ -166,17 +167,17 @@ private:
     }
 
     int http_setenv(void){
-        setenv("REQUEST_METHOD" , req_.req_method, 1);
-        if (req_.req_uri)
-            setenv("REQUEST_URI"    ,req_.req_uri ,1);
-        if (req_.query_string)
-            setenv("QUERY_STRING"   ,req_.query_string ,1);
-        setenv("SERVER_PROTOCOL",req_.serv_proto ,1);
-        setenv("HTTP_HOST"      ,req_.http_host ,1);
-        setenv("SERVER_ADDR"    ,req_.server_addr ,1);
-        setenv("SERVER_PORT"    ,req_.server_port ,1);
-        setenv("REMOTE_ADDR", socket_.remote_endpoint().address().to_string().c_str(), 1);
-        setenv("REMOTE_PORT", std::to_string(socket_.remote_endpoint().port()).c_str() ,1);
+        // setenv("REQUEST_METHOD" , req_.req_method, 1);
+        // if (req_.req_uri)
+        //     setenv("REQUEST_URI"    ,req_.req_uri ,1);
+        // if (req_.query_string)
+        //     setenv("QUERY_STRING"   ,req_.query_string ,1);
+        // setenv("SERVER_PROTOCOL",req_.serv_proto ,1);
+        // setenv("HTTP_HOST"      ,req_.http_host ,1);
+        // setenv("SERVER_ADDR"    ,req_.server_addr ,1);
+        // setenv("SERVER_PORT"    ,req_.server_port ,1);
+        // setenv("REMOTE_ADDR", socket_.remote_endpoint().address().to_string().c_str(), 1);
+        // setenv("REMOTE_PORT", std::to_string(socket_.remote_endpoint().port()).c_str() ,1);
         return 0;
     }
     
@@ -213,6 +214,20 @@ private:
         return -1;
     }
     
+    
+    int http_panel(){
+        std::cout << "http server is sending panel" << '\n';
+        std::string panelstr(PANEL);
+        boost::asio::async_write(socket_, boost::asio::buffer(panelstr), 
+            [](std::error_code ec, size_t len){});
+        return 0;
+    }
+    
+    int http_console(){
+        
+        return 0;
+    }
+    
     mode_t _get_filemod(char *f){
         struct stat statbuf;
         if (stat(f, &statbuf) != 0) {
@@ -244,6 +259,20 @@ public:
         mode_t mode;
         http_setenv();
         
+        if (strcmp(http_file, "./panel.cgi") == 0) {
+            http_stat = OK;
+            http_file_t = EXEC;
+            http_send_header();
+            http_panel();
+            return 0;
+        }else if (strcmp(http_file, "./console.cgi") == 0) {
+            http_stat = OK;
+            http_file_t = EXEC;
+            http_send_header();
+            http_console();
+            return 0;
+        }
+        
         std::cout << "checking file existence and permissions" << '\n';
         http_file_t = BAD;
         if (access(http_file, F_OK) == -1) {
@@ -261,11 +290,7 @@ public:
             goto bad;
         }
         
-        if (access(http_file, X_OK) == 0) {
-            std::cout << "==>executable file" << '\n';
-            http_file_t = EXEC;
-            http_stat = OK;
-        }else if (access(http_file, R_OK) == 0) {
+        if (access(http_file, R_OK) == 0) {
             std::cout << "==>regular file" << '\n';
             http_file_t = READ;
             http_stat = OK;
@@ -302,46 +327,16 @@ class server
 public:
     server(boost::asio::io_context& io_context, unsigned short port)
     : io_context_(io_context),
-      signal_(io_context, SIGCHLD),
       acceptor_(io_context, {tcp::v4(), port}),
       socket_(io_context),
       req_parser()
     {
         memset(rbuf, 0, 1024);
         rlen = 0;
-        wait_for_signal();
         accept();
     }
 
 private:
-    void wait_for_signal() {
-        signal_.async_wait(
-            [this](boost::system::error_code /*ec*/, int /*signo*/) {
-                // Only the parent process should check for this signal. We can
-                // determine whether we are in the parent by checking if the acceptor
-                // is still open.
-                if (acceptor_.is_open()){
-                    std::cout << "[SIGCHLD] ";
-                    // Reap completed child processes so that we don't end up with
-                    // zombies.
-                    int status = 0;
-                    int pid;
-                    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
-                        std::cout << "pid = " << pid << '\n';
-                        if (WIFEXITED(status)) {
-                            std::cout << "\t exit status = " << WEXITSTATUS(status) << '\n';
-                        }else if (WIFSIGNALED(status)) {
-                            std::cout << "\t signaled = " << WTERMSIG(status) << '\n';
-                        }else {
-                            std::cout << "unknown exit status" << '\n';
-                        }
-                    }
-
-                    wait_for_signal();
-                }
-            });
-    }
-
     void accept(){
         acceptor_.async_accept(
             [this](boost::system::error_code ec, tcp::socket new_socket){
@@ -349,20 +344,8 @@ private:
                     std::cout << "[accept]" << '\n';
                     // Take ownership of the newly accepted socket.
                     socket_ = std::move(new_socket);
-                    
-                    io_context_.notify_fork(boost::asio::io_context::fork_prepare);
-
-                    if (fork() == 0) {
-                        std::cout << "[fork] child pid=" << getpid() << '\n';
-                        io_context_.notify_fork(boost::asio::io_context::fork_child);
-                        acceptor_.close();
-                        signal_.cancel();
-                        read();
-                    }else {
-                        io_context_.notify_fork(boost::asio::io_context::fork_parent);
-                        socket_.close();
-                        accept();
-                    }
+                    read();
+                    accept();
                 }else {
                     std::cerr << "Accept error: " << ec.message() << std::endl;
                     accept();
@@ -371,7 +354,7 @@ private:
     }
 
     void read() {
-        socket_.async_read_some(boost::asio::buffer(data_),
+        socket_.async_read_some(boost::asio::buffer(data_, 1024),
             [this](boost::system::error_code ec, std::size_t length)
             {
                 char *ptr = NULL;
@@ -388,8 +371,11 @@ private:
                     std::cout << rbuf << '\n';
                     
                     if (req_parser.do_parse(rbuf, rlen) == http_parser::COMPLETE) {
+                        memset(rbuf, 0, 4096);
+                        rlen = 0;
                         http_responder req_responder(socket_, req_parser);
                         req_responder.exec();
+                        socket_.close();
                     }
                 } else if (!ec){
                     read();
@@ -400,7 +386,6 @@ private:
     char rbuf[4096];
     int rlen;
     boost::asio::io_context& io_context_;
-    boost::asio::signal_set signal_;
     tcp::acceptor acceptor_;
     tcp::socket socket_;
     std::array<char, 1024> data_;

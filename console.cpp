@@ -3,6 +3,7 @@
 #include <boost/asio.hpp>
 #include <stdlib.h>
 #include <unistd.h>
+#include "np_hardcoded_console-head.hpp"
 
 boost::asio::io_context io_context;
 
@@ -199,16 +200,14 @@ public:
         std::cout << str << "&NewLine;</b>';</script>\n" << std::flush;
     }
     
-    console (struct host *hstp, std::string header_file){
+    console (struct host *hstp, const char* hardcoded_head){
         using namespace std;
         stringstream  buf;
         hst_list = hstp;
         nractive = 0;
         memset(session, 0, MAXHST*sizeof(struct session));
         
-        ifstream is (header_file, ifstream::binary);
-        buf << is.rdbuf();
-        cout << buf.str();
+        cout << hardcoded_head;
         
         for (size_t i = 0; i < MAXHST; i++) {
             if (hst_list[i].active) {
@@ -365,7 +364,7 @@ int main(int argc, char const *argv[]) {
     parse.start();
     parse.check();
     
-    console console(parse.hst_list, "console-head.html");
+    console console(parse.hst_list, CONSOLE_HEAD);
     
     size_t nr = console.nractive;
     for (size_t i = 0; i < nr ; i++) {

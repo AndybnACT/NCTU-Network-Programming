@@ -371,7 +371,7 @@ private:
     }
 
     void read() {
-        socket_.async_read_some(boost::asio::buffer(data_),
+        socket_.async_read_some(boost::asio::buffer(data_, 1024),
             [this](boost::system::error_code ec, std::size_t length)
             {
                 char *ptr = NULL;

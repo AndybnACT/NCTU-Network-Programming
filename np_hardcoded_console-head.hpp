@@ -1,3 +1,4 @@
+const char *CONSOLE_HEAD = R""""(
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -34,4 +35,5 @@
       }
     </style>
   </head>
-  
+ 
+ )"""";
