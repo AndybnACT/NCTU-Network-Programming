@@ -5,9 +5,9 @@ CXX_INCLUDE_PARAMS=$(addprefix -I , $(CXX_INCLUDE_DIRS))
 CXX_LIB_DIRS=/usr/local/lib
 CXX_LIB_PARAMS=$(addprefix -L , $(CXX_LIB_DIRS))
 
-all: httpd cgi
+all: http_server cgi
 
-%: %.cpp
+http_server: httpd.cpp
 	$(CXX) $< -o $@ $(CXX_INCLUDE_PARAMS) $(CXX_LIB_PARAMS) $(CXXFLAGS)
 
 cgi: console.cgi

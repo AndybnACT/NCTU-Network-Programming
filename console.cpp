@@ -269,7 +269,6 @@ using boost::asio::ip::tcp;
 
 class npshell_conn {
 private:
-    boost::asio::io_context &io_context_;
     tcp::resolver resolver;
     tcp::socket socket;
     tcp::resolver::results_type endpoint;
@@ -364,8 +363,7 @@ private:
     
 public:
     npshell_conn (boost::asio::io_context &io_context, struct host &h, console &console, int id)
-    :   io_context_(io_context),
-        resolver(io_context),
+    :   resolver(io_context),
         socket(io_context),
         console_(console),
         host(h),

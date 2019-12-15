@@ -165,15 +165,26 @@ private:
         exit(rc);
     }
 
+    char * http_resolve_host(char *hostname){
+        char *local_heap_cpy;
+        boost::asio::ip::address addr = socket_.local_endpoint().address();
+        local_heap_cpy = strdup(addr.to_string().c_str());
+        return local_heap_cpy;
+    }
+    
     int http_setenv(void){
         setenv("REQUEST_METHOD" , req_.req_method, 1);
         if (req_.req_uri)
             setenv("REQUEST_URI"    ,req_.req_uri ,1);
+        else
+            setenv("REQUEST_URI"    ,"" ,1);
         if (req_.query_string)
             setenv("QUERY_STRING"   ,req_.query_string ,1);
+        else
+            setenv("QUERY_STRING", "", 1);
         setenv("SERVER_PROTOCOL",req_.serv_proto ,1);
         setenv("HTTP_HOST"      ,req_.http_host ,1);
-        setenv("SERVER_ADDR"    ,req_.server_addr ,1);
+        setenv("SERVER_ADDR"    ,http_resolve_host(req_.server_addr) ,1);
         setenv("SERVER_PORT"    ,req_.server_port ,1);
         setenv("REMOTE_ADDR", socket_.remote_endpoint().address().to_string().c_str(), 1);
         setenv("REMOTE_PORT", std::to_string(socket_.remote_endpoint().port()).c_str() ,1);
@@ -195,7 +206,7 @@ private:
     
     int http_send_stream(std::ifstream &stream){
         auto buf = std::make_shared<boost::asio::streambuf>();
-        std::ostream(buf.get()) << stream.rdbuf();
+        std::ostream(buf.get()) << "\r\n" << stream.rdbuf();
         boost::asio::async_write(socket_, *buf, [buf](std::error_code ec, size_t len){});
         return 0;
     }
