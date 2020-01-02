@@ -1,14 +1,16 @@
 #include <stdio.h>
+#include <unistd.h>
 #define CONFIG_DEBUG
 
 #ifdef CONFIG_DEBUG
 
 #define CONFIG_DEBUG_LVL 10
 
-#define dprintf(lvl, args...){      \
-    if (lvl < CONFIG_DEBUG_LVL) {   \
-        fprintf(stderr, ##args);    \
-    }                               \
+#define dprintf(lvl, args...){               \
+    if (lvl < CONFIG_DEBUG_LVL) {            \
+        fprintf(stderr, "[%d]:", getpid());  \
+        fprintf(stderr, ##args);             \
+    }                                        \
 }
 
 #else
