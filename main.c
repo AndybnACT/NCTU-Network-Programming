@@ -1,4 +1,5 @@
 #include "debug.h"
+#include "socks.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,12 +15,6 @@
 #include <errno.h>
 
 #define MAXCONN 10
-
-struct socks_client {
-    char ipstr[INET_ADDRSTRLEN];
-    uint16_t port;
-};
-
 
 int socks_server_exited(pid_t pid)
 {
@@ -139,7 +134,12 @@ struct socks_client* socks_client_init(struct sockaddr_in *addrp)
     }
     
     inet_ntop(AF_INET, &addrp->sin_addr, client->ipstr, INET_ADDRSTRLEN);
+    client->stat = 0;
     client->port = ntohs(addrp->sin_port);
+    client->dstname = NULL;
+    client->dstport = 0;
+    client->dstfd = -1;
+    client->resolved = NULL;
     
     return client;
 }
@@ -185,9 +185,10 @@ retry_fork:
             perror("fork");
             goto retry_fork;
         }else if (child == 0) {
+            close(sockfd);
             dprintf(1, "socks_server: fork, child pid = %d\n", getpid());
             
-            
+            socks4_start(connfd, socks_client);
             
             exit(-1);
         }

@@ -6,7 +6,7 @@ CXXFLAGS= -g -Wall
 
 
 TARGET=socks_server
-OBJ=main.o
+OBJ=main.o socks.o
 
 
 DEP=$(OBJ:%.o=%.d)
