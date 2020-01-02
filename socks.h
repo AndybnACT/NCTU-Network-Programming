@@ -39,7 +39,7 @@ struct socks_client {
     uint16_t dstport;
     int dstfd;
     struct socks4_req_header *request;
-    socks_reply *reply;
+    socks_reply reply;  // fixed-size
 };
 
 void socks4_start(int fd, struct socks_client *client);

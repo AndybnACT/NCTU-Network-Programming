@@ -31,7 +31,7 @@ char *getstr(int fd)
         }
         i += rc;
     }
-    dprintf(1, "buf of getstr is full!! \n");
+    dprintf(3, "buf of getstr is full!! \n");
     return NULL;
 }
 
@@ -139,10 +139,10 @@ int socks4_parse_header(int fd, struct socks_client *client)
     client->dstport = port_h;
     client->request = req;
     
-    dprintf(1, "[parsed] socks request:\n");
-    dprintf(1, "\tdest: %s\n", client->dstname);
-    dprintf(1, "\tport: %hu\n", client->dstport);
-    dprintf(1, "\tcmd: 0x%x\n", (client->stat & SOCKS_CMD_MASK) >> 4);
+    dprintf(2, "[parsed] socks request:\n");
+    dprintf(2, "\tdest: %s\n", client->dstname);
+    dprintf(2, "\tport: %hu\n", client->dstport);
+    dprintf(2, "\tcmd: 0x%x\n", (client->stat & SOCKS_CMD_MASK) >> 4);
     
     return REPLY_GRANTED;
 }
@@ -154,13 +154,13 @@ int socks4_resolve(struct socks_client *client)
     struct addrinfo *res = NULL;
     char portbuf[6];
     
-    dprintf(1, "resolving\n");
+    dprintf(3, "resolving\n");
     client->resolved = NULL;
     
     
     if ((client->stat & SOCKS_VER_MASK) != SOCKS_4 && 
         (client->stat & SOCKS_VER_MASK) != SOCKS_4A) {
-        dprintf(1, "BUG, socks version not supported\n");
+        dprintf(3, "BUG, socks version not supported\n");
         return REPLY_REJECTED;
     }
     
@@ -198,7 +198,7 @@ int socks4_connect(struct socks_client *client)
     }
     
     do {
-        dprintf(1, "Trying to connect %s...\n", client->dstname);
+        dprintf(3, "Trying to connect %s...\n", client->dstname);
         rc = connect(fd, addr->ai_addr, sizeof(struct addrinfo));
         if (rc == 0) {
             dprintf(1, "connected!\n");
@@ -208,7 +208,7 @@ int socks4_connect(struct socks_client *client)
         addr = addr->ai_next;
     } while(addr);
     
-    dprintf(1, "Fail to connect to %s with possible tries\n", client->dstname);
+    dprintf(3, "Fail to connect to %s with possible tries\n", client->dstname);
     
     return REPLY_REJECTED;
 }
@@ -216,7 +216,7 @@ int socks4_connect(struct socks_client *client)
 void socks4_reply(int fd, socks_reply *reply) 
 {
     if (blocked_write(fd, (char*) reply, sizeof(socks_reply))) {
-        dprintf(1, "Cannot send reply header\n");
+        dprintf(2, "Cannot send reply header\n");
         exit(EXIT_FAILURE);
     }
     dprintf(1, "reply header sent, code = 0x%x\n", reply->CD);
@@ -252,7 +252,7 @@ int socks4_relay_run(int fd1, int fd2)
                 
                 rc = read(i, buf, 4096);
                 if (rc <= 0) {
-                    dprintf(2, "---------> read failed, closing socket\n");
+                    dprintf(4, "---------> read failed, closing socket\n");
                     close(fd1);
                     close(fd2);
                     return 0;
@@ -273,48 +273,73 @@ int socks4_relay_run(int fd1, int fd2)
     return rc;
 }
 
-void socks4_start(int fd, struct socks_client *client)
+int socks4_cmd_connect(int fd, struct socks_client *client)
 {
     int rc;
-    int start_relay = 0;
-    socks_reply *reply = (socks_reply*) malloc(sizeof(socks_reply));
+    socks_reply *reply = &client->reply;
     reply->VN = 0;
     reply->CD = REPLY_REJECTED;
     reply->DSTIP = 0;
     reply->DSTPORT = 0;
-
+    
     do {
-        rc = socks4_parse_header(fd, client);
-        if (rc != REPLY_GRANTED)
-            break;
-        
         rc = socks4_resolve(client);
         if (rc != REPLY_GRANTED){
-            dprintf(1, "fail to resolve host\n");
+            dprintf(2, "fail to resolve host\n");
             break;
         }
         
         rc = socks4_firewall(client);
         if (rc != REPLY_GRANTED){
-            dprintf(1, "connection violates firewall rules\n");
+            dprintf(2, "connection violates firewall rules\n");
             break;
         }
         
         rc = socks4_connect(client);
         if (rc != REPLY_GRANTED){
-            dprintf(1, "fail to connect host\n");
+            dprintf(2, "fail to connect host\n");
             break;
         }
-        
-        start_relay = 1;
+        reply->CD = rc;
+        socks4_reply(fd, reply);
     } while(0);
-    reply->CD = rc;
+    
+    // opt to socks4_start to reply on failure;
+    return rc;
+}
 
-    socks4_reply(fd, reply);
+int socks4_cmd_bind(int fd, struct socks_client *client)
+{
+    return REPLY_REJECTED;
+}
+
+void socks4_start(int fd, struct socks_client *client)
+{
+    int rc;
+    socks_reply failure;
     
-    if (start_relay)
-        rc = socks4_relay_run(fd, client->dstfd);
+    rc = socks4_parse_header(fd, client);
+    if (rc == REPLY_GRANTED){
+        switch (client->stat & SOCKS_CMD_MASK) {
+            case SOCKS_CONNECT:
+                rc = socks4_cmd_connect(fd, client);
+                break;
+            case SOCKS_BIND:
+                rc = socks4_cmd_bind(fd, client);
+                break;
+            default:
+                dprintf(1, "BUG, unsupported command type %d\n", 
+                        (client->stat & SOCKS_CMD_MASK)>>4);
+                rc = REPLY_REJECTED;
+        }
+        if (rc == REPLY_GRANTED){
+            rc = socks4_relay_run(fd, client->dstfd);
+            exit(rc);
+        }
+    }
     
+    failure.CD = rc;
+    socks4_reply(fd, &failure);
     exit(rc);
     return;
 }
