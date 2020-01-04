@@ -1,4 +1,5 @@
 #include "debug.h"
+#include "socket.h"
 #include "socks.h"
 
 #include <stdio.h>
@@ -13,8 +14,6 @@
 #include <string.h>
 #include <signal.h>
 #include <errno.h>
-
-#define MAXCONN 10
 
 int socks_server_exited(pid_t pid)
 {
@@ -73,58 +72,6 @@ int register_chld(void)
     return 0;
 }
 
-int socket_init(uint16_t port)
-{
-    int sockfd;
-    int rc;
-    struct sockaddr_in servaddr;
-    const int optval = 1;
-    const socklen_t optlen = sizeof(optval);
-    
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd == -1) {
-        perror("socket");
-        exit(-1);
-    }
-    rc = setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (void*) &optval, optlen);
-    
-    memset(&servaddr, 0, sizeof(servaddr));
-    servaddr.sin_family = AF_INET; 
-    servaddr.sin_addr.s_addr = htonl(INADDR_ANY); 
-    servaddr.sin_port = htons(port); 
-    rc = bind(sockfd, (struct sockaddr*) &servaddr, sizeof(struct sockaddr_in));
-    if (rc) {
-        perror("bind");
-        exit(-1);
-    }
-    
-    rc = listen(sockfd, MAXCONN);
-    if (rc) {
-        perror("listen");
-        exit(-1);
-    }
-        
-    return sockfd;
-}
-
-int socket_accept(int sockfd, struct sockaddr_in *addrp)
-{
-    int connfd;
-    uint32_t len = sizeof(struct sockaddr_in);
-
-retry:    
-    connfd = accept(sockfd, (struct sockaddr*) addrp, &len);
-    if (connfd == -1) {
-        perror("accept");
-        if (errno == EINTR) {
-            goto retry;
-        }
-        exit(-1);
-    }
-    
-    return connfd;
-}
-
 struct socks_client* socks_client_init(struct sockaddr_in *addrp)
 {
     struct socks_client *client = (struct socks_client *) malloc(sizeof(struct socks_client));
@@ -140,6 +87,8 @@ struct socks_client* socks_client_init(struct sockaddr_in *addrp)
     client->dstport = 0;
     client->dstfd = -1;
     client->resolved = NULL;
+    memset(&client->reply, 0, sizeof(socks_reply));
+    client->reply.CD = REPLY_REJECTED;
     
     return client;
 }
@@ -194,7 +143,6 @@ retry_fork:
         }
         close(connfd);
     }
-    
     
     return 0;
 }
