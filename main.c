@@ -1,6 +1,7 @@
 #include "debug.h"
 #include "socket.h"
 #include "socks.h"
+#include "firewall.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -127,6 +128,8 @@ int main(int argc, char const *argv[]) {
         
         dprintf(0, "socks_server: connection from %s:%hu\n", socks_client->ipstr,
                 socks_client->port);
+        
+        firewall_init();
         
 retry_fork:
         child = fork();

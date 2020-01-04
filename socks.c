@@ -1,6 +1,7 @@
 #include "debug.h"
 #include "socks.h"
 #include "socket.h"
+#include "firewall.h"
 
 #include <stdlib.h>
 #include <errno.h>
@@ -15,6 +16,8 @@
 
 #include <sys/select.h>
 #include <sys/time.h>
+
+#define IPV4_ADDRP(x) ((struct sockaddr_in*)((x)->ai_addr))->sin_addr.s_addr 
 
 char *getstr(int fd)
 {
@@ -184,7 +187,23 @@ int socks4_resolve(struct socks_client *client)
 
 int socks4_firewall(struct socks_client *client)
 {
-    return REPLY_GRANTED;
+    uint8_t mode = (client->stat & SOCKS_CMD_MASK) >> 4;
+    struct addrinfo *addrp = client->resolved;
+    uint32_t ipbuf;
+    char buf[INET_ADDRSTRLEN];
+    
+    for (; addrp; addrp = addrp->ai_next) {
+        
+        ipbuf = IPV4_ADDRP(addrp);
+        inet_ntop(AF_INET, &ipbuf, buf, INET_ADDRSTRLEN);
+        dprintf(3, "trying %s\n", buf);
+        
+        if (firewall_rule(mode, IPV4_ADDRP(addrp)) == FW_PASS) {
+            return REPLY_GRANTED;
+        }
+    }
+    
+    return REPLY_REJECTED;
 }
 
 int socks4_connect(struct socks_client *client)

@@ -4,7 +4,7 @@
 
 #ifdef CONFIG_DEBUG
 
-#define CONFIG_DEBUG_LVL 10
+#define CONFIG_DEBUG_LVL 4
 
 #define dprintf(lvl, args...){               \
     if (lvl < CONFIG_DEBUG_LVL) {            \
