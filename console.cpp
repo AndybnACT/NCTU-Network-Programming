@@ -273,6 +273,7 @@ private:
     tcp::socket socket;
     tcp::resolver::results_type endpoint;
     std::ifstream cmdstream;
+    boost::asio::deadline_timer timer;
     console &console_;
     struct host &host;
     int sid;
@@ -360,11 +361,21 @@ private:
             });
         return -1;
     }
+    void wait(){
+        timer.expires_from_now(boost::posix_time::seconds(2));
+        timer.async_wait([this](boost::system::error_code ec){
+            if (!ec) {
+                console_.output_command(sid, "Hello");
+                wait();
+            }
+        });
+    }
     
 public:
     npshell_conn (boost::asio::io_context &io_context, struct host &h, console &console, int id)
     :   resolver(io_context),
         socket(io_context),
+        timer(io_context),
         console_(console),
         host(h),
         sid(id)
@@ -374,6 +385,7 @@ public:
         cmdstream = std::ifstream("./test_case/" + h.file, std::ifstream::binary);
         
         npshell_connect(endpoint);
+        wait();
         return;
     };
 };
