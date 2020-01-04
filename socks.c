@@ -1,5 +1,6 @@
 #include "debug.h"
 #include "socks.h"
+#include "socket.h"
 
 #include <stdlib.h>
 #include <errno.h>
@@ -50,7 +51,7 @@ int blocked_read(int fd, char *buf, size_t len)
     return 0;
 }
 
-int blocked_write(int fd, char *buf, size_t len)
+int blocked_write(int fd, const char *buf, size_t len)
 {
     int rc;
     while (len) {
@@ -199,7 +200,7 @@ int socks4_connect(struct socks_client *client)
     
     do {
         dprintf(3, "Trying to connect %s...\n", client->dstname);
-        rc = connect(fd, addr->ai_addr, sizeof(struct addrinfo));
+        rc = connect(fd, addr->ai_addr, sizeof(struct sockaddr));
         if (rc == 0) {
             dprintf(1, "connected!\n");
             client->dstfd = fd;
@@ -213,9 +214,9 @@ int socks4_connect(struct socks_client *client)
     return REPLY_REJECTED;
 }
 
-void socks4_reply(int fd, socks_reply *reply) 
+void socks4_reply(int fd, const socks_reply *reply) 
 {
-    if (blocked_write(fd, (char*) reply, sizeof(socks_reply))) {
+    if (blocked_write(fd, (const char*) reply, sizeof(socks_reply))) {
         dprintf(2, "Cannot send reply header\n");
         exit(EXIT_FAILURE);
     }
@@ -228,6 +229,7 @@ int socks4_relay_run(int fd1, int fd2)
     int rc;
     char buf[4096] = {0,};
     fd_set read_fd_set, active_fd_set;
+    size_t transmitted = 0;
     int nrsel;
     
     FD_ZERO(&active_fd_set);
@@ -252,17 +254,23 @@ int socks4_relay_run(int fd1, int fd2)
                 
                 rc = read(i, buf, 4096);
                 if (rc <= 0) {
-                    dprintf(4, "---------> read failed, closing socket\n");
+                    dprintf(4, "completed transmitting %zu bytes"
+                               ", closing sockets\n", transmitted);
                     close(fd1);
                     close(fd2);
                     return 0;
                 }
+                
+                transmitted += rc;
                 
                 if (i == fd1 && rc) {
                     rc = blocked_write(fd2, buf, rc);
                 }
                 if (i == fd2 && rc) {
                     rc = blocked_write(fd1, buf, rc);
+                }
+                if (rc) {
+                    dprintf(4, " !!! write fail, %d remaining bytes\n", rc);
                 }
             }
         }
@@ -277,10 +285,6 @@ int socks4_cmd_connect(int fd, struct socks_client *client)
 {
     int rc;
     socks_reply *reply = &client->reply;
-    reply->VN = 0;
-    reply->CD = REPLY_REJECTED;
-    reply->DSTIP = 0;
-    reply->DSTPORT = 0;
     
     do {
         rc = socks4_resolve(client);
@@ -310,6 +314,71 @@ int socks4_cmd_connect(int fd, struct socks_client *client)
 
 int socks4_cmd_bind(int fd, struct socks_client *client)
 {
+    int rc;
+    int sockfd, connfd;
+    struct addrinfo *addrp;
+    struct sockaddr_in servaddrbuf, clientaddrbuf;
+    uint32_t buflen = sizeof(struct sockaddr_in);
+    uint32_t bindaddr = client->request->head.DSTIP;
+    
+    socks_reply *reply = &client->reply;
+    
+    do {
+        rc = socks4_resolve(client);
+        if (rc != REPLY_GRANTED){
+            dprintf(2, "fail to resolve host\n");
+            break;
+        }
+        
+        rc = socks4_firewall(client);
+        if (rc != REPLY_GRANTED){
+            dprintf(2, "connection violates firewall rules\n");
+            break;
+        }
+        
+        dprintf(2, "creating socket to listen\n");
+        sockfd = socket_init(0);
+        rc = getsockname(sockfd, (struct sockaddr*) &servaddrbuf, &buflen);
+        if (rc) {
+            perror("getsockname");
+            goto reject_socket;
+        }
+        reply->DSTPORT = servaddrbuf.sin_port;
+        reply->DSTIP = servaddrbuf.sin_addr.s_addr;
+        reply->CD = REPLY_GRANTED;
+        socks4_reply(fd, reply);
+        
+        dprintf(2, "accepting connection on port %hu\n", ntohs(servaddrbuf.sin_port));
+        connfd = socket_accept(sockfd, &clientaddrbuf);
+        
+        for (addrp = client->resolved; addrp; addrp = addrp->ai_next) {
+            bindaddr = ((struct sockaddr_in*)(addrp->ai_addr))->sin_addr.s_addr ;
+            if (bindaddr == clientaddrbuf.sin_addr.s_addr) {
+                dprintf(3, "Incoming ip match!\n");
+                break;
+            }
+        }
+        if (!addrp) {
+            fprintf(stderr, "%x\n", clientaddrbuf.sin_addr.s_addr);
+            fprintf(stderr, "%x\n", bindaddr);
+            fprintf(stderr, "Incoming connection is not same as the requested one!\n");
+            goto reject_accept;
+        }
+        
+        dprintf(2, "connection established\n"); 
+        socks4_reply(fd, reply);
+        
+        client->dstfd = connfd;
+        
+        close(sockfd);
+        rc = REPLY_GRANTED;
+    } while(0);
+    
+    return rc;
+reject_accept:
+    close(connfd);
+reject_socket:
+    close(sockfd);
     return REPLY_REJECTED;
 }
 
