@@ -15,10 +15,12 @@ DEP=$(OBJ:%.o=%.d)
 
 all: $(OBJ)
 	$(CC) $(CFLAGS) -o $(TARGET) $(OBJ)
+	make -C cgi
 
 -include $(DEP)
 
 clean:
+	make -C cgi clean
 	rm $(OBJ)
 	rm $(TARGET)
 	rm $(DEP)
