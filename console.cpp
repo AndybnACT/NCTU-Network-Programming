@@ -69,20 +69,34 @@ private:
     int parse2host_arg(char *strp){
         item = strp[0];
         std::string hstnumstr = strp+1;
-        hst = std::stoi(hstnumstr, NULL, 10);
+        try {
+            hst = std::stoi(hstnumstr, NULL, 10);
+        }
+        catch (std::invalid_argument) {
+            item = strp[1];
+            hst = MAXHST + 1;
+        }
         return 0;
     }
     int parse2host_val(char *strp){
-        if (hst > MAXHST || hst < 0) {
+        if (hst > MAXHST + 1 || hst < 0) {
             std::cerr << "host number out of range" << '\n';
             exit(-1);
         }
         switch (item) {
             case 'h':
-                hst_list[hst].host = strp;
+                if (hst ==  MAXHST + 1) {
+                    socks.host = strp;
+                }else {
+                    hst_list[hst].host = strp;
+                }
                 break;
             case 'p':
-                hst_list[hst].port = strp;
+                if (hst ==  MAXHST + 1) {
+                    socks.port =strp;
+                }else {
+                    hst_list[hst].port = strp;
+                }
                 break;
             case 'f':
                 hst_list[hst].file = strp;
@@ -95,6 +109,7 @@ private:
     }
 public:
     struct host hst_list[MAXHST];
+    struct host socks;
     
     qstr_parser(char *query){
         qstr = strdup(query);
@@ -107,6 +122,11 @@ public:
             hst_list[i].port = "";
             hst_list[i].file = "";
         }
+        socks.active = 0;
+        socks._port = 0;
+        socks.host = "";
+        socks.port = "";
+        socks.file = "";
     }
     
     int start() {
@@ -163,6 +183,14 @@ public:
             DBGOUT("name: " << hst_list[i].host);
             DBGOUT("port: " << hst_list[i]._port);
             DBGOUT("file: " << hst_list[i].file);
+        }
+        
+        if (!socks.host.empty() && !socks.port.empty()) {
+            socks._port =  (unsigned short) std::stoi(socks.port, NULL, 10);
+            socks.active = 1;
+            DBGOUT("socks is active");
+            DBGOUT("name: " << socks.host);
+            DBGOUT("port: " << socks._port);
         }
         return 0;
     }
@@ -275,6 +303,7 @@ private:
     std::ifstream cmdstream;
     console &console_;
     struct host &host;
+    struct host &socks;
     int sid;
     
     char rbuf[RBUFSIZE];
@@ -361,19 +390,63 @@ private:
         return -1;
     }
     
+    int npshell_socks_connect(tcp::resolver::results_type &endpoint)
+    {
+        // auto self(shared_from_this());
+        boost::asio::async_connect(socket, endpoint, 
+            [this](boost::system::error_code ec, tcp::endpoint ep)
+            {
+                if (!ec) {
+                    std::array<char, 8> reply;
+                    unsigned short port_n = htons(host._port);
+                    unsigned int ip_n = htonl(0x1);
+                    DBGOUT("connected!!!");
+                    socket.write_some(boost::asio::buffer("\x04\x01", 2));
+                    socket.write_some(boost::asio::buffer(&port_n, 2));
+                    socket.write_some(boost::asio::buffer(&ip_n, 4));
+                    socket.write_some(boost::asio::buffer("x", 1));
+                    socket.write_some(boost::asio::buffer("\0", 1));
+                    socket.write_some(boost::asio::buffer(host.host));
+                    socket.write_some(boost::asio::buffer("\0", 1));
+                    
+                    socket.read_some(boost::asio::buffer(reply, 8));
+                    if (reply[1] == 90) {
+                        console_.output_command(sid, "connected!");
+                        npshell_recvRes();
+                    }else{
+                        console_.output_command(sid, "fail!");
+                    }
+                }else {
+                    NPSHELL_ERR(ec);
+                }
+            });
+        return -1;
+    }
+    
 public:
-    npshell_conn (boost::asio::io_context &io_context, struct host &h, console &console, int id)
+    npshell_conn (boost::asio::io_context &io_context, struct host &h, struct host &s, 
+        console &console, int id)
     :   resolver(io_context),
         socket(io_context),
         console_(console),
         host(h),
+        socks(s),
         sid(id)
     {
-        endpoint = resolver.resolve(host.host, host.port);
+        if (socks.active) {
+            endpoint = resolver.resolve(socks.host, socks.port);
+        }else {
+            endpoint = resolver.resolve(host.host, host.port);
+        }
+        
         DBGOUT(sid);
         cmdstream = std::ifstream("./test_case/" + h.file, std::ifstream::binary);
         
-        npshell_connect(endpoint);
+        if (socks.active) {
+            npshell_socks_connect(endpoint);
+        }else {
+            npshell_connect(endpoint);
+        }
         return;
     };
 };
@@ -405,7 +478,8 @@ int main(int argc, char const *argv[]) {
     
     size_t nr = console.nractive;
     for (size_t i = 0; i < nr ; i++) {
-        npshell[i] = new npshell_conn(io_context, *console.session[i].hst, console, i);
+        npshell[i] = new npshell_conn(io_context, *console.session[i].hst, 
+                                       parse.socks, console, i);
     }
     
     io_context.run();
