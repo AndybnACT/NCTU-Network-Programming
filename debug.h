@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <unistd.h>
-#define CONFIG_DEBUG
+// #define CONFIG_DEBUG
 
 #ifdef CONFIG_DEBUG
 

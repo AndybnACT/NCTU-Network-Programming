@@ -1,4 +1,3 @@
-#define CONFIG_DEBUG
 #include "debug.h"
 #include "socks.h"
 #include "firewall.h"
