@@ -39,6 +39,13 @@ char *getstr(int fd)
     return NULL;
 }
 
+void update_dstipstr(struct socks_client *client, uint32_t ip, int is_netorder) {
+    if (!is_netorder) {
+        ip = htons(ip);
+    }
+    inet_ntop(AF_INET, &ip, client->dstipstr, INET_ADDRSTRLEN);
+}
+
 int blocked_read(int fd, char *buf, size_t len)
 {
     int rc;
@@ -132,6 +139,8 @@ int socks4_parse_header(int fd, struct socks_client *client)
             exit(-1);
         }
         inet_ntop(AF_INET, &(ip_n), dst, INET_ADDRSTRLEN);
+        update_dstipstr(client, ip_n, 1);
+        
         req->domain = NULL;
         req->domainlen = 0;
         
@@ -182,6 +191,7 @@ int socks4_resolve(struct socks_client *client)
     }
     
     client->resolved = res;
+    update_dstipstr(client, IPV4_ADDRP(res), 1);
     return REPLY_GRANTED;
 }
 
@@ -223,6 +233,7 @@ int socks4_connect(struct socks_client *client)
         if (rc == 0) {
             dprintf(1, "connected!\n");
             client->dstfd = fd;
+            update_dstipstr(client, IPV4_ADDRP(addr), 1);
             return REPLY_GRANTED;
         }
         addr = addr->ai_next;
@@ -374,6 +385,7 @@ int socks4_cmd_bind(int fd, struct socks_client *client)
             bindaddr = ((struct sockaddr_in*)(addrp->ai_addr))->sin_addr.s_addr ;
             if (bindaddr == clientaddrbuf.sin_addr.s_addr) {
                 dprintf(3, "Incoming ip match!\n");
+                update_dstipstr(client, bindaddr, 1);
                 break;
             }
         }
@@ -401,6 +413,38 @@ reject_socket:
     return REPLY_REJECTED;
 }
 
+void socks_print_client(struct socks_client *client, int rc)
+{
+    fprintf(stdout, "<S_IP>: %s\n", client->ipstr);
+    fprintf(stdout, "<S_PORT>: %hu\n", client->port);
+    if (strlen(client->dstipstr)) {
+        fprintf(stdout, "<D_IP>: %s\n", client->dstipstr );
+    }else {
+        fprintf(stdout, "<D_IP>: unknown\n");
+    }
+    fprintf(stdout, "<D_PORT>: %hu\n", client->dstport);
+    switch ((client->stat) & SOCKS_CMD_MASK) {
+        case SOCKS_CONNECT:
+            fprintf(stdout, "<Command>: CONNECT\n");
+            break;
+        case SOCKS_BIND:
+            fprintf(stdout, "<Command>: BIND\n");
+            break;
+        default:
+            fprintf(stdout, "<Command>: unknown\n");
+    }
+    switch (rc) {
+        case REPLY_GRANTED:
+            fprintf(stdout, "<Reply>: Accept\n");
+            break;
+        case REPLY_REJECTED:
+            fprintf(stdout, "<Reply>: Reject\n");
+            break;
+        default:
+            fprintf(stdout, "<Reply>: unknown\n");
+    }    
+}
+
 void socks4_start(int fd, struct socks_client *client)
 {
     int rc;
@@ -420,6 +464,9 @@ void socks4_start(int fd, struct socks_client *client)
                         (client->stat & SOCKS_CMD_MASK)>>4);
                 rc = REPLY_REJECTED;
         }
+        
+        socks_print_client(client, rc);
+        
         if (rc == REPLY_GRANTED){
             rc = socks4_relay_run(fd, client->dstfd);
             exit(rc);

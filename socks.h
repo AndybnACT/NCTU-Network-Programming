@@ -35,6 +35,7 @@ struct socks_client {
     char ipstr[INET_ADDRSTRLEN];
     uint16_t port;
     char *dstname;
+    char dstipstr[INET_ADDRSTRLEN];
     struct addrinfo *resolved;
     uint16_t dstport;
     int dstfd;
