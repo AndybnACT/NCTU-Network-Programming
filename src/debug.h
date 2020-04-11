@@ -8,7 +8,7 @@
 
 #define dprintf(lvl, fmt, args...){                             \
     if (CONFIG_DEBUG_LEVEL && (lvl) <= CONFIG_DEBUG_LEVEL) {    \
-        printf((fmt), ##args);                                  \
+        fprintf(stderr, (fmt), ##args);                         \
     }                                                           \
 }
 

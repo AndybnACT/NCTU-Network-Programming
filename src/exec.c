@@ -1,13 +1,121 @@
 #define _GNU_SOURCE 
+#ifndef CONFIG
+#include "_config.h"
+#define CONFIG
+#endif
+
 #include <stdio.h>
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h> 
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <signal.h>
 #include <string.h>
 #include "command.h"
 #include "debug.h"
+#include "net.h"
+
+#if defined(CONFIG_SERVER3) || defined(CONFIG_SERVER2)
+#include "upipe.h"
+#endif /* CONFIG_SERVER3 || CONFIG_SERVER2 */
+
+
+#if defined(CONFIG_SERVER1) || defined(CONFIG_SERVER3)
+#define FINDCMD_BY_PID(ptr, pid, head){                         \
+    ptr = head;                                                 \
+    while (ptr->pid != pid) {                                   \
+        ptr = ptr->next;                                        \
+        if (ptr == NULL) {                                      \
+            dprintf(0, "error finding Cmd with pid = %d", pid); \
+            ptr = NULL;                                         \
+            break;                                              \
+        }                                                       \
+    }                                                           \
+}
+#endif /* CONFIG_SERVER1 || CONFIG_SERVER3 */
+
+#ifdef CONFIG_SERVER2
+
+#define __FINDCMD_BY_PID(ptr, pid, head){   \
+    ptr = head;                             \
+    while (ptr->pid != pid) {               \
+        ptr = ptr->next;                    \
+        if (ptr == NULL)                    \
+            break;                          \
+    }                                       \
+}
+
+#define FINDCMD_BY_PID(ptr, pid, id){                       \
+    for (id = 1; id < MAXUSR; id++) {                       \
+        __FINDCMD_BY_PID(ptr, pid, &UsrLst[id].cmdhead);    \
+        if (ptr)                                            \
+            break;                                          \
+    }                                                       \
+    if (!ptr) {                                             \
+        dprintf(0, "error finding Cmd with pid = %d", pid); \
+    }                                                       \
+}
+
+#endif /* CONFIG_SERVER2 */
+
+// read:
+//      SA_NOCLDSTOP
+//      SA_NOCLDWAIT
+extern struct Command *Cmd_Head;
+void npshell_sigchld_hdlr(int sig, siginfo_t *info, void *ucontext)
+{
+    int status = 0;
+    pid_t pid; // = info->si_pid;  !! pending `SIGCHLD`s can be coalesced
+    struct Command *signaled_cmd;
+    
+    while (1) {
+        pid = waitpid(-1, &status, WNOHANG);
+        if (pid <= 0) {
+            break;
+        }
+        dprintf(0, "npshell_sigchld_hdlr: unregistering pid %d \n", pid);
+        
+#ifdef CONFIG_SERVER2
+        int id, curid;
+        FINDCMD_BY_PID(signaled_cmd, pid, id);
+        curid = selfid;
+        np_switch_to(id);
+#else       
+        FINDCMD_BY_PID(signaled_cmd, pid, Cmd_Head);
+#endif
+        if (!signaled_cmd) {
+            exit(-1);
+        }
+        
+        if (WIFEXITED(status) || WIFSIGNALED(status)) {
+            signaled_cmd->stat = STAT_KILL;
+            signaled_cmd->exit_code = WIFEXITED(status) ? 
+                                     WEXITSTATUS(status):WTERMSIG(status);
+            signaled_cmd->stat = STAT_FINI;
+        }else{
+            dprintf(0, "npshell_sigchld_hdlr: Error !!!\n");
+            signaled_cmd->stat = STAT_KILL;
+        }
+#ifdef CONFIG_SERVER2
+        np_switch_to(curid);
+#endif
+    }
+    return;
+}
+
+int builtin_err_print(struct Command *cmd, char*msg)
+{
+    int fderr;
+#if defined(CONFIG_SERVER1) || defined(CONFIG_SERVER3)
+    fderr = cmd->fds[2] == -1 ? 2:cmd->fds[2];
+#endif /* CONFIG_SERVER1 || CONFIG_SERVER3 */
+#ifdef CONFIG_SERVER2
+    fderr = cmd->fds[2] == -1 ? Self.connfd:cmd->fds[2];
+#endif /* CONFIG_SERVER2 */
+    write(fderr, msg, strlen(msg));
+    return 0;
+}
 
 int child_dupfd(int old, int new)
 { // only used in child
@@ -76,6 +184,66 @@ int fill_pipe_fd(struct Command *source, struct Command *dest, int _w, int _r)
     return 0;
 }
 
+#if defined(CONFIG_SERVER3) || defined(CONFIG_SERVER2) 
+int percmd_upipe(struct Command *percmd, int rw)
+{
+    int rc;
+    int fd;
+    char errmsg[1024];
+    int src, dst;
+    
+    if (rw == 0) {
+        src = percmd->upipe[0];
+        dst = selfid;
+    }else{
+        src = selfid;
+        dst = percmd->upipe[1];
+    }
+    
+    if (percmd->upipe[rw] != -1) {
+        rc = usrchk(percmd->upipe[rw], errmsg, 1024);
+        if (rc == -1) {
+            percmd->upipe_err = ERR_NOUSR;
+            goto upipe_err;
+        }
+        
+        if (percmd->fds[rw] != -1) {
+            if (rw == 0) {
+                printf("Error, input of upipe conflicts with preallocated pipes\n");
+            }else {
+                printf("Error, output of upipe conflicts with preallocated pipes\n");
+            }
+            exit(-1);
+        }
+        
+        if (rw == 0) {
+            fd = upipe_get_readend(percmd->upipe[0]);
+        }else {
+            fd = upipe_set_writeend(percmd->upipe[1], 1);
+        }
+        
+        if (fd < 0) {
+            if (fd == ERR_PIPE_EXIST) {
+                percmd->upipe_err = ERR_PIPE_EXIST;
+                snprintf(errmsg, 1024, PIPE_EXIST, src, dst);
+            }else if (fd == ERR_PIPENOTFOUND) {
+                percmd->upipe_err = ERR_PIPENOTFOUND;
+                snprintf(errmsg, 1024, PIPENOTFOUND, src, dst);
+            }else{
+                strcpy(errmsg, "upipe: unknown error!!");
+            }
+upipe_err:
+            builtin_err_print(percmd, errmsg);
+            percmd->upipe[rw] = -1;
+            fd = open("/dev/null", O_RDWR);
+        }
+        percmd->fds[rw] = fd;
+    }
+    return fd;
+
+}
+#endif /* CONFIG_SERVER3 || CONFIG_SERVER2 */
+
 int percmd_pipes(struct Command *percmd)
 {
     int ret = -1;
@@ -103,7 +271,7 @@ int percmd_file(struct Command *percmd)
     if (!path)
         return 0;
     
-    fd = open(path, O_RDWR|O_CLOEXEC|O_CREAT, 0666);
+    fd = open(path, O_RDWR|O_CLOEXEC|O_CREAT|O_TRUNC, 0666);
     if (fd == -1) {
         perror("open ");
         exit(-1);
@@ -119,12 +287,35 @@ int percmd_file(struct Command *percmd)
     return 0;
 }
 
+int child_source_exec(struct Command *child)
+{
+    int argc = child->argc;
+    int fd;
+    if (argc != 2) {
+        printf("source usage: source file\n");
+        exit(-1);
+    }
+    fd = open(child->argv[1], O_RDONLY);
+    if (fd == -1) {
+        perror("open");
+        exit(-1);
+    }
+    if (child->fds[0] != -1) {
+        printf("source BUG, stdin already allocated\n");
+    }
+    child->fds[0] = fd;
+    return 0;
+}
+
 int percmd_exec(struct Command *percmd)
 {
     pid_t child;
     int ret;
     sigset_t blk_chld, orig;
-    int fderr;
+    char buf[128];
+#if defined(CONFIG_SERVER2) || defined(CONFIG_SERVER3)
+    int upipe_fd;
+#endif /* CONFIG_SERVER2 || CONFIG_SERVER3 */
     
     if (percmd->exec[0] != '.' && percmd->exec[0] != '/') {
         // lookup in PATH and builtin cmd
@@ -135,15 +326,10 @@ int percmd_exec(struct Command *percmd)
                 ret = _builtin_cmd_exec(percmd);
                 percmd->stat = STAT_FINI;
                 percmd->exit_code = ret;
-            }else if (ret == -CMD_UNKNOWN) {
-                fderr = percmd->fds[2] == -1 ? 2:percmd->fds[2];
-                
-                percmd->stat = STAT_FINI;
-                percmd->exit_code = -1;
-                // write to stderr of this cmd !!
-                write(fderr, "Unknown command: [", 18);
-                write(fderr, percmd->exec, strlen(percmd->exec));
-                write(fderr, "].\n", 3);
+            }else if (ret == -CMD_UNKNOWN) {                
+                snprintf(buf, 128, "Unknown command: [%s].\n", percmd->exec);
+                builtin_err_print(percmd, buf);
+                ERRFINCMD(percmd);
                 ret = -1;
             }
             goto safe_close;
@@ -158,6 +344,11 @@ int percmd_exec(struct Command *percmd)
         sigdelset(&orig, SIGCHLD);
     }
 
+#if defined(CONFIG_SERVER2) || defined(CONFIG_SERVER3)
+        np_upipe_sysmsg(percmd->upipe[0], 0, percmd->fullcmd);
+        np_upipe_sysmsg(percmd->upipe[1], 1, percmd->fullcmd);
+#endif /* CONFIG_SERVER2 || CONFIG_SERVER3 */
+
 retry:
     percmd->stat = STAT_EXEC;
     child = fork();
@@ -168,6 +359,14 @@ retry:
     }else if (child == 0){ // in child
         sigprocmask(SIG_SETMASK, &orig, NULL);
         dprintf(1, "hello from child %d\n", getpid());
+        if (percmd->source) {
+            child_source_exec(percmd);
+        }
+#ifdef CONFIG_SERVER2
+        percmd->fds[0] = (percmd->fds[0] == -1) ? Self.connfd:percmd->fds[0];
+        percmd->fds[1] = (percmd->fds[1] == -1) ? Self.connfd:percmd->fds[1];
+        percmd->fds[2] = (percmd->fds[2] == -1) ? Self.connfd:percmd->fds[2];
+#endif /* CONFIG_SERVER2 */
         child_dupfd(percmd->fds[0], 0);
         child_dupfd(percmd->fds[1], 1);
         child_dupfd(percmd->fds[2], 2);
@@ -192,6 +391,17 @@ safe_close:
     SAFE_CLOSEFD(percmd->fds[0]);
     SAFE_CLOSEFD(percmd->pipes[0]);
     SAFE_CLOSEFD(percmd->pipes[1]);
+#if defined(CONFIG_SERVER2) || defined(CONFIG_SERVER3)
+    upipe_release(percmd->upipe[0]);
+    if (percmd->upipe[1] != -1) {
+        upipe_fd = upipe_get_writeend(percmd->upipe[1]);
+        dprintf(2, "closing upipe_fd = %d\n", upipe_fd);
+        close(upipe_fd);
+    }
+    if (percmd->upipe_err) {
+        SAFE_CLOSEFD(percmd->fds[1]);
+    }
+#endif /* CONFIG_SERVER2 || CONFIG_SERVER3 */
     if (percmd->file_out_pipe)
         SAFE_CLOSEFD(percmd->fds[1]);
     
@@ -208,6 +418,10 @@ int execCmd(struct Command *Cmdhead)
         if (Cmd->stat == STAT_SET) {
             percmd_pipes(Cmd);
             percmd_file(Cmd);
+#if defined(CONFIG_SERVER3) || defined(CONFIG_SERVER2)
+            percmd_upipe(Cmd, 1);
+            percmd_upipe(Cmd, 0);
+#endif /* CONFIG_SERVER3 || CONFIG_SERVER2 */
             percmd_exec(Cmd); // do fork-exec routines
             cnt++;
             Cmd = Cmd->next;

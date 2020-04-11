@@ -1,4 +1,21 @@
+#ifndef CMD_H
+#define CMD_H
+
+#ifndef CONFIG
+#include "_config.h"
+#define CONFIG
+#endif
+
+#ifdef CONFIG_SERVER2
+/* np_single_proc.c */
+int np_single_proc(int sockfd);
+/* main.c */
+int npshell_init(void);
+int npshell_exec_once(void);
+#endif /* CONFIG_SERVER2 */
+
 #include <stdlib.h>
+#include <signal.h>
 #include <sys/types.h>
 #include "debug.h"
 
@@ -12,15 +29,19 @@ extern char **Envp;
 
 
 struct Command {
+    int source;
     int stat;
     pid_t pid;
     int exit_code;
     int argc;
     int (*_func)(int argc, char **argv);
+    char *fullcmd;
     char *exec;
     char **argv;
     int fds[3];
     int pipes[2];
+    int upipe_err;
+    int upipe[2];
     char *file_out_pipe;
     struct Command *cmd_first_in_pipe;
     struct Command *cmd_out_pipe;
@@ -28,7 +49,13 @@ struct Command {
     struct Command *next;
 };
 
+#define ERRFINCMD(cmd){         \
+    (cmd)->stat = STAT_FINI;    \
+    (cmd)->exit_code = -1;      \
+}
+
 #define RESETCMD(cmd) {                 \
+    (cmd)->source = 0;                  \
     (cmd)->pid = 0;                     \
     (cmd)->stat = STAT_READY;           \
     (cmd)->next = NULL;                 \
@@ -37,6 +64,9 @@ struct Command {
     (cmd)->cmd_err_pipe = NULL;         \
     (cmd)->pipes[0] = -1;               \
     (cmd)->pipes[1] = -1;               \
+    (cmd)->upipe_err = 0;               \
+    (cmd)->upipe[0] = -1;               \
+    (cmd)->upipe[1] = -1;               \
     (cmd)->fds[0] = -1;                 \
     (cmd)->fds[1] = -1;                 \
     (cmd)->fds[2] = -1;                 \
@@ -69,6 +99,7 @@ static inline struct Command * zallocCmd(void)
             dprintf(lvl, "%s ", (Cmdp)->argv[i]);                                               \
         dprintf(lvl, "\n");                                                                     \
     }                                                                                           \
+    dprintf(lvl, "upipe in==> %d, upipe out==> %d\n", (Cmdp)->upipe[0], (Cmdp)->upipe[1]);      \
     dprintf(lvl, "pipe fd==> %d, %d, %d\n", (Cmdp)->fds[0], (Cmdp)->fds[1], (Cmdp)->fds[2]);     \
     dprintf(lvl, "proc in==> %p, proc out==> %p\n", (Cmdp)->cmd_first_in_pipe, (Cmdp)->cmd_out_pipe); \
     dprintf(lvl, "stdout to file %s\n" , (Cmdp)->file_out_pipe);                                \
@@ -82,6 +113,7 @@ struct Command * parse2Cmd(char *cmdbuf, size_t bufsize, struct Command *head);
     if (fd != -1)           \
         close(fd);          \
 }
+void npshell_sigchld_hdlr(int sig, siginfo_t *info, void *ucontext);
 int execCmd(struct Command *Cmd);
 struct Command * syncCmd(struct Command *head);
 
@@ -92,3 +124,4 @@ struct Command * syncCmd(struct Command *head);
 
 int command_lookup(struct Command *cmdp);
 int _builtin_cmd_exec(struct Command *cmdp);
+#endif

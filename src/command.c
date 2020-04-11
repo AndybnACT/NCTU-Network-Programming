@@ -6,8 +6,10 @@
 
 
 #define DELIMITER "\n\t\r "
+#define LINEBREAK "\n\r"
+enum toktype{ TYPE_NONE, TYPE_REG, TYPE_MSG};
 struct token {
-    int type;
+    enum toktype type;
     int len;
     char *name;
     struct token *next;
@@ -16,6 +18,8 @@ struct token {
 int gettoken(char *buf, struct token *token)
 {
     int tokcnt = 0;
+    int msgcmd = 0;
+    int msg_remaintok = -1;
     
     while (1) {
         while (strchr(DELIMITER, *buf) && *buf) {
@@ -28,17 +32,46 @@ int gettoken(char *buf, struct token *token)
             
         token->name = buf;
         token->len = 0;
+        token->type = TYPE_REG;
         tokcnt++;
+        
+        if (msgcmd) {
+            msg_remaintok -= 1;
+            token->type = TYPE_MSG;
+            // walk through entire str for last item in tell/yell cmds
+            if (msg_remaintok == 0) {
+                while (!strchr(LINEBREAK, *buf) && *buf) {
+                    buf++;
+                    token->len++;
+                }
+            }
+        }
         
         while (!strchr(DELIMITER, *buf) && *buf) {
             buf++;
             token->len++;
         }
         
+        if (msg_remaintok == -1) {
+            if (msgcmd == 1) { 
+                // parse error (LINEBREAK is not followed by \0)
+                return 0;
+            }
+            if (strncmp(token->name, "tell", token->len) == 0) {
+                msgcmd = 1;
+                msg_remaintok = 2;
+            }
+            if (strncmp(token->name, "yell", token->len) == 0) {
+                msgcmd = 1;
+                msg_remaintok = 1;
+            }
+        }
+        
         token->next = (struct token*) malloc(sizeof(struct token));
         token = token->next;
         token->name = NULL;
         token->len  = 0;
+        token->type = TYPE_NONE;
         token->next = NULL;
     }
     
@@ -92,7 +125,51 @@ int npipe_setcmd(int number, struct Command *head, int pipe_stderr)
     return 0;
 }
 
-#define CMDSEP "|>!"
+int upipe_setcmd(struct token *tokp, struct Command *cmd, int rw)
+{
+    char *numstr = tokp->name+1;
+    int number;
+    
+    errno = 0;
+    number = (int) strtol(numstr, NULL, 10);
+    if (errno) {
+        printf("Error, unable to parse user pipe %s\n", numstr);
+        perror("strtol");
+        exit(-1);
+    }
+    
+    cmd->upipe[rw] = number;
+    return 0;
+}
+
+struct token * tok2upipe(struct token *tokp, struct Command *head)
+{
+    struct token *lookup_tok = tokp;
+    
+    for (; lookup_tok->name; lookup_tok = lookup_tok->next) {
+        switch (*lookup_tok->name) {
+            case '<':
+                if (lookup_tok->len == 1) {
+                    return tokp;
+                }
+                upipe_setcmd(lookup_tok, head, 0);
+                tokp = tokp->next;
+                break;
+            case '>':
+                if (lookup_tok->len == 1) {
+                    return tokp;
+                }
+                upipe_setcmd(lookup_tok, head, 1);
+                tokp = tokp->next;
+                break;
+            default:
+                return tokp;
+        }
+    }
+    return tokp;
+}
+
+#define CMDSEP "|>!<"
 
 struct token * tok2npipe(struct token *tokp, struct Command *head)
 {
@@ -172,6 +249,7 @@ struct Command * parse2Cmd(char *cmdbuf, size_t bufsize, struct Command *head)
     struct token tokenlist;
     struct token *tokptr = &tokenlist;
     struct Command *curcmd;
+    char *cmd_cpy = strdup(cmdbuf);
     
     // walk to the first command struct that hasn't been executed
     for (; head && head->stat != STAT_READY; head = head->next) {
@@ -191,7 +269,8 @@ struct Command * parse2Cmd(char *cmdbuf, size_t bufsize, struct Command *head)
     
     dprintf(1, "token list[%d]:\n", ret);
     for (struct token *tokenp = &tokenlist; tokenp->next; tokenp = tokenp->next) {
-        dprintf(1, "\tname = %s, len = %d\n", tokenp->name, tokenp->len);    
+        dprintf(1, "\tname = %s, len = %d, type=%d\n", tokenp->name, tokenp->len,
+                                                        tokenp->type);    
     }
     
     while (1) {
@@ -202,9 +281,10 @@ struct Command * parse2Cmd(char *cmdbuf, size_t bufsize, struct Command *head)
         
         tmptokp = tokptr;
         head->exec = strdup(tokptr->name);    
+        head->fullcmd = cmd_cpy;
         
         // get argc
-        while (!strchr(CMDSEP, *tmptokp->name)) {
+        while (!strchr(CMDSEP, *tmptokp->name) || tmptokp->type == TYPE_MSG) {
             argc++;
             tmptokp = tmptokp->next;
             if (!tmptokp->name) // end of command
@@ -226,9 +306,13 @@ struct Command * parse2Cmd(char *cmdbuf, size_t bufsize, struct Command *head)
         head->argv[argc] = NULL;
         head->argc = argc;
         
-        if (tmptokp->name) // must be '!' or '|' or '>'
-            tmptokp = tok2npipe(tmptokp, head);
         
+        if (tmptokp->name){ // must be '!' or '|' or '>n' or '<n'
+            tmptokp = tok2upipe(tmptokp, head);
+        }
+        if (tmptokp->name) {
+            tmptokp = tok2npipe(tmptokp, head);
+        }
         head->stat = STAT_SET; 
         if (!head->next)
             head->next = zallocCmd(); 

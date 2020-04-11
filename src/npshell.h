@@ -1,0 +1,1 @@
+int npshell(int argc, char const *argv[]);
